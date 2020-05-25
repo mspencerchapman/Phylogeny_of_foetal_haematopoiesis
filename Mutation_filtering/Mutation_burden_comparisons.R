@@ -1,4 +1,4 @@
-my_working_directory = "~/R Work/Fetal HSPCs/Foetal_phylogeny/"
+my_working_directory="~/R Work/Fetal HSPCs/Phylogeny_of_foetal_haematopoiesis/"
 setwd(my_working_directory)
 
 library(stringr)

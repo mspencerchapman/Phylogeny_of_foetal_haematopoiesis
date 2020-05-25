@@ -9,7 +9,7 @@ library(plotrix)
 library(phangorn)
 library(RColorBrewer)
 
-my_working_directory="~/R Work/Fetal HSPCs/Foetal_phylogeny/"
+my_working_directory="~/R Work/Fetal HSPCs/Phylogeny_of_foetal_haematopoiesis/"
 treemut_dir="~/R Work/R_scripts/treemut/"
 setwd(my_working_directory)
 

@@ -4,6 +4,9 @@ library(viridis)
 library(dplyr)
 library(tidyr)
 
+my_working_directory="~/R Work/Fetal HSPCs/Phylogeny_of_foetal_haematopoiesis/"
+setwd(my_working_directory)
+
 #Set the colour scheme for the heat maps
 viridis <- viridis::viridis(11)
 colour.scale <- c("lightgrey", brewer.pal(9, name = "YlOrRd"))
@@ -13,8 +16,7 @@ samples=tissues_comb
 
 #DEFINE SIMILARITY USING SOFT COSINE SIMILARITY SCORE
 ###Choose the kind of data to input for the analysis
-#NB. clearest outcomes displaying relationship of PB to mesenchyme/ placental CD34+s is by using
-# post.prob with tissues_comb/tissues and censoring values <0.5 (i.e. more likely absent than present)
+#NB. clearest outcomes displaying relationship of PB to mesenchyme/ placental CD34+s is by using log(cell_fraction) with tissues_comb and censoring values with clean.post.prob <0.9
 
 #(1) Generate the vaf_present/clean.post.prob matrix - then keep only those with the samples desired
 cell_frac=calculate_cell_frac(NV=NV,NR=NR)

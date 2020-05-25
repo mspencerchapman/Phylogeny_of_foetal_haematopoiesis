@@ -4,6 +4,9 @@ library(viridis)
 library(dplyr)
 library(tidyr)
 
+my_working_directory="~/R Work/Fetal HSPCs/Phylogeny_of_foetal_haematopoiesis/"
+setwd(my_working_directory)
+
 #Set the colour scheme for the heat maps
 viridis <- viridis::viridis(11)
 colour.scale <- c("lightgrey", brewer.pal(9, name = "YlOrRd"))

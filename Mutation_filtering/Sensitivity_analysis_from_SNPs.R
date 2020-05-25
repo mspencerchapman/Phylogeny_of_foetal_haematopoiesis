@@ -6,24 +6,23 @@
 # the "pass" pindel calls) to see what proportion of germline variants have been called in each sample.
 #This is outputted as a sensitivity dataframe where each sample is a row & there are separate columns for SNV and INDEL sensitivity
 
+#To run this script, must have access to the final sets of filtered mutation calls from running the sample against an unmatched reference genome.
 setwd("/lustre/scratch119/casm/team154pc/ms56/fetal_HSC/")
 library(data.table)
 
 ##Define the REFERENCE GERMLINE MUTATIONS set for each foetus
 
 #Get reference set of SNPs/ INDELs for the 18 week foetus.  Get from the post-LCM-artefact-filtering mutation sets (i.e. SNPs still retained).
-Run_ID = "a1_MS2_both"
-mats_and_params_file = paste0("filtering_runs/mats_and_params/mats_and_params_", Run_ID)
-load(mats_and_params_file)
-germline_SNVs_18wks = COMB_mats$mat$mut_ref[COMB_mats$mat$Mut_type == "SNV" & log10(filter_params$germline_pval) > -6 & filter_params$bb_rhoval < 0.05 & rowSums(COMB_mats$NR) > 500]
-germline_INDELs_18wks = COMB_mats$mat$mut_ref[COMB_mats$mat$Mut_type == "INDEL" & log10(filter_params$germline_pval) > -6 & filter_params$bb_rhoval < 0.05  & rowSums(COMB_mats$NR) > 500]
+mats_and_params_file_18pcw = "" #Path to full output file of the "Mutation_filtering_get_parameters.R" script
+load(mats_and_params_file_18pcw)
+germline_SNVs_18pcw = COMB_mats$mat$mut_ref[COMB_mats$mat$Mut_type == "SNV" & log10(filter_params$germline_pval) > -6 & filter_params$bb_rhoval < 0.05 & rowSums(COMB_mats$NR) > 500]
+germline_INDELs_18pcw = COMB_mats$mat$mut_ref[COMB_mats$mat$Mut_type == "INDEL" & log10(filter_params$germline_pval) > -6 & filter_params$bb_rhoval < 0.05  & rowSums(COMB_mats$NR) > 500]
 
 #Get reference set of SNPs/ INDELs for the 8 week foetus.  Get from the post-LCM-artefact-filtering mutation sets (i.e. SNPs still retained).
-Run_ID = "a5_8wks_postMS_both"
-mats_and_params_file = paste0("filtering_runs/mats_and_params/mats_and_params_", Run_ID)
-load(mats_and_params_file)
-germline_SNVs_8wks = COMB_mats$mat$mut_ref[COMB_mats$mat$Mut_type == "SNV" & log10(filter_params$germline_pval) > -6 & filter_params$bb_rhoval < 0.05  & rowSums(COMB_mats$NR) > 500]
-germline_INDELs_8wks = COMB_mats$mat$mut_ref[COMB_mats$mat$Mut_type == "INDEL" & log10(filter_params$germline_pval) > -6 & filter_params$bb_rhoval < 0.05  & rowSums(COMB_mats$NR) > 500]
+mats_and_params_file_8pcw = "" #Path to full output file of the "Mutation_filtering_get_parameters.R" script
+load(mats_and_params_file_8pcw)
+germline_SNVs_8pcw = COMB_mats$mat$mut_ref[COMB_mats$mat$Mut_type == "SNV" & log10(filter_params$germline_pval) > -6 & filter_params$bb_rhoval < 0.05  & rowSums(COMB_mats$NR) > 500]
+germline_INDELs_8pcw = COMB_mats$mat$mut_ref[COMB_mats$mat$Mut_type == "INDEL" & log10(filter_params$germline_pval) > -6 & filter_params$bb_rhoval < 0.05  & rowSums(COMB_mats$NR) > 500]
 
 
 #Function to calculate sensitivity from a vcf file of passed mutations for an individual sample, and a reference list of germline mut_refs
@@ -75,17 +74,18 @@ create_sensitivity_df=function(germline_SNV_set, #A vector of germline SNVs in t
 }
 
 ##RUN THESE FUNCTIONS TO GET SENSITIVITY DATAFRAMES FOR BOTH SNVs and INDELs
-sensitivity_analysis_18wks=create_sensitivity_df(germline_SNV_set=germline_SNVs_18wks,
+sensitivity_analysis_18pcw=create_sensitivity_df(germline_SNV_set=germline_SNVs_18pcw,
                                                  SNV_calls_folder="fetal_18wks/MSfilters2",
-                                                 germline_INDEL_set=germline_INDELs_18wks,
+                                                 SNV_calls_file_ext="_complete_final_retained_2.vcf",
+                                                 germline_INDEL_set=germline_INDELs_18pcw,
                                                  INDEL_calls_folder = "fetal_18wks/pindel_raw")
 
-sensitivity_analysis_8wks=create_sensitivity_df(germline_SNV_set=germline_SNVs_8wks,
+sensitivity_analysis_8pcw=create_sensitivity_df(germline_SNV_set=germline_SNVs_8pcw,
                                                 SNV_calls_folder="fetal_8wks/MS_filters/output_files",
                                                 SNV_calls_file_ext = "_complete_final_retained_3.vcf",
-                                                germline_INDEL_set=germline_INDELs_8wks,
+                                                germline_INDEL_set=germline_INDELs_8pcw,
                                                 INDEL_calls_folder = "fetal_8wks/pindel_raw")
 
 ##SAVE THE DATAFRAMES
-write.table(sensitivity_analysis_18wks, file = "fetal_18wks/sensitivity_analysis_18pcw", row.names = FALSE)
-write.table(sensitivity_analysis_8wks, file = "fetal_8wks/sensitivity_analysis_8pcw", row.names = FALSE)
+write.table(sensitivity_analysis_18pcw, file = "fetal_18wks/sensitivity_analysis_18pcw", row.names = FALSE)
+write.table(sensitivity_analysis_8pcw, file = "fetal_8wks/sensitivity_analysis_8pcw", row.names = FALSE)

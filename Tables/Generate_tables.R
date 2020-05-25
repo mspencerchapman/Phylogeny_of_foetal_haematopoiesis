@@ -1,7 +1,8 @@
 #Generate the tables summarising the number of biopsies and mean depth for the LCM targeted sequencing
 library(dplyr)
 
-setwd("~/R Work/Fetal HSPCs/Foetal_phylogeny/")
+my_working_directory="~/R Work/Fetal HSPCs/Phylogeny_of_foetal_haematopoiesis/"
+setwd(my_working_directory)
 
 #For the 8pcw foetus
 lcm_smry<-read.csv("Data/8pcw/targeted_seq_ids_8wks.csv")
