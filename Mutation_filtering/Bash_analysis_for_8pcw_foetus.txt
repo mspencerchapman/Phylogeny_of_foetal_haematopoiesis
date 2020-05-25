@@ -1,0 +1,204 @@
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# "Subs analysis for fetal_HSC"
+# Author: Mike Spencer Chapman
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#Raw sequencing data is processed initially on the CASM pipelines by Caveman (SNV mutation-calling algorithm)
+#This script describes subsequent analysis for initial filtering and combining all variants from all the samples into a single bed file for use in cgpvaf
+#Cgpvaf output has to be run in multiple separate jobs (10 samples/ job) which are then combined at the end
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# 1. Copy and unzip caveman files from nst_links (310718) on farm3
+        /lustre/scratch119/casm/team154pc/ms56/fetal_HSC/fetal_8wks
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+mkdir caveman_raw
+cd caveman_raw
+
+nohup cp /nfs/cancer_ref01/nst_links/live/2169/*/*caveman_c.annot.vcf.gz . &
+
+nohup gunzip *gz &
+
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# 2. Apply filters designed by Mathijs Sanders to remove recognised artefacts introduced during the low-input pipeline
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#These filters are described in initial LCM papers on colon, endometrium and liver
+#Interactively run the script "Submitting_Mathijs_filters_jobs.R" on the farm, referencing project "2169" and sample ID "PD43947"
+#This will output a set of filtered vcf files with the extension "final_retained_3.vcf"
+
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# 2. Filter the outputted vcf files so that it only includes the actual mutation rows (not the headers etc.). These all have a "pass" in the FILTER column.
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+filter_for_bed_file.pl
+
+# Perl script:
+my @file_list = `ls *final_retained_3.vcf`; # choose the files with "caveman_c.annot.vcf" in the title
+                                               
+print "@file_list \n";
+                                               
+foreach my $file (@file_list) {
+                                               
+        # open file
+        print "$file";
+        chomp $file;
+        open (my $fh, '<', $file) or die "Can't open $file, $! \n";
+        print "opened file: $file \n";
+                                               
+    # make an array with all the pass hits
+    my @filtered = ();
+    while (my $line = <$fh>) {
+        if ($line =~ (/PASS/)) {
+                        push @filtered, $line;
+         }
+    }
+                                               
+        # put all these hits in an output file
+        my $file_out = "$file"."_for_bed_file"; # make output file with a name that links it to the input file
+        print "$file_out";
+        open (my $fh_out, '>', "$file_out") or die "Can't open $file_out\n";
+        print $fh_out "$_" for @filtered;
+        close $fh_out;
+}
+                                               
+nohup perl filter_for_bed_file.pl &
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#3. Check number of lines in the pass_flag files (310718)
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+wc -l *pass_flags
+# Between 24000 and 34000 lines per file
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# 3. Get one long bed file of all the subs, copy to new directory, create output file (310718)
+
+/lustre/scratch119/casm/team154pc/ms56/fetal_HSC/fetal_8wks/caveman_pileup
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+cut -f 1,2,4,5 *_retained_3.vcf_for_bed_file | sort | uniq > fetal_8wks_all_samps_MS.bed
+# 96905 unique substitutions
+                     
+mkdir output
+
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# 4. Run cgpVAF script to create cgpVAF commands that are split per chromosome
+        On cgp-farm
+        /lustre/scratch119/casm/team154pc/ms56/fetal_HSC/fetal_8wks/caveman_pileup/
+        Creates: cgpVafChr.cmd (commands split per chr) cgpVafConcat.cmd (commands to concatenate split output) run_bsub.sh (script to set off commands in first two files)
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+perl-5.16.3 /software/CGP/projects/cgpVAFcommand/perl/bin/createVafCmd.pl -pid 2169  -o output -g /lustre/scratch119/casm/team78pipelines/reference/human/GRCh37d5/genome.fa -hdr /lustre/scratch119/casm/team78pipelines/reference/human/GRCh37d5/shared/ucscHiDepth_0.01_mrg1000_no_exon_coreChrs.bed.gz -mq 30  -bo 1  -b fetal_8wks_all_samps_MS.bed
+                                               
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# 5. Modify config.ini file (in output directory) to have approx 10 bams per job (splits by bams as well as by chr)
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                               [1957]
+                                               PDv37is_UNM1= <<EOT
+                                               PD41048b_sc0001
+                                               PD41048b_sc0003
+                                               PD41048b_sc0004
+                                               PD41048b_sc0006
+                                               PD41048b_sc0007
+                                               PD41048b_sc0009
+                                               PD41048b_sc0010
+                                               PD41048b_sc0011
+                                               PD41048b_sc0012
+                                               PD41048b_sc0013
+                                               PD41048b_sc0014
+                                               EOT
+                                               PDv37is_UNM2= <<EOT
+                                               PD41048b_sc0015
+                                               PD41048b_sc0016
+                                               PD41048b_sc0017
+                                               PD41048b_sc0018
+                                               PD41048b_sc0019
+                                               PD41048b_sc0020
+                                               PD41048b_sc0022
+                                               PD41048b_sc0023
+                                               PD41048b_sc0024
+                                               PD41048b_sc0025
+                                               PD41048b_sc0027
+                                               PD41048b_sc0028
+                                               EOT
+                                               
+                                               
+                                               [UserData]
+                                               bedfile=fetal_8wks_all_samps_MS.bed
+                                               
+                                               [genome_build]
+                                               genome=human
+                                               build=GRCh37d5
+
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# 6. Save .ini file as 2043_cgpVafConfig_split.ini and run following command to create amended split commands
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+/software/CGP/canpipe/live/bin/canpipe_live
+perl-5.16.3 /software/CGP/projects/cgpVAFcommand/perl/bin/createVafCmd.pl -pid 2169 -o output -i output/2169_cgpVafConfig_split.ini -g /lustre/scratch119/casm/team78pipelines/reference/human/GRCh37d5/genome.fa -hdr /lustre/scratch119/casm/team78pipelines/reference/human/GRCh37d5/shared/ucscHiDepth_0.01_mrg1000_no_exon_coreChrs.bed.gz -mq 30  -bo 1  -b fetal_8wks_all_samps_MS.bed
+
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# 7. Edit run_bsub.sh command to increase memory and use long queue
+            run_bsub.sh command sets off jobs in cgpVafChr.cmd file that has been created
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+set -e;
+set -o pipefail;
+                                               
+jobid=`bsub -oo cgpvaf%I.log -q normal -J 'batchjobs[1-120]%50' -n 1 -R 'select[mem>=4000] span[hosts=1] rusage[mem=4000]' -M4000 '/software/$tware/CGP/projects/cgpVAFcommand/perl/bin/farm_idx_exec.pl cgpVafChr.cmd $LSB_JOBINDEX' |  perl -ane '($id)=$_=~/Job\s+<(\d+)>.*/; print$id'`
+                                               
+bsub -w "done($jobid)||exit($jobid)" -oo concat%I.log -q normal -J 'batchjobs[1-5]%5' -n 1 -R 'select[mem>=1000] span[hosts=1] rusage[mem=1000]' -M1000 '/software/CGP/projects/cgpVAFcommand/perl/bin/farm_idx_exec.pl cgpVafConcat.cmd $LSB_JOBINDEX'
+                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# 8. Run run_bsub.sh command
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+bash run_bsub.sh
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# 9. Check output /lustre/scratch117/casm/team154/em16/SX001/mpileup/output/output/PDv37is/snp
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+For each batch of bam files:
+PDv37is_PD41048b_sc0001_snp_vaf.tsv
+PDv37is_PD41048b_sc0001_snp_vaf.vcf
+PDv37is_PD41048b_sc0001_snp_vaf.vcf.gz
+PDv37is_PD41048b_sc0001_snp_vaf.vcf.gz.tbi
+
+# 5 output vaf.tsv files
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# 10.  Remove extra lines in headers of vaf.tsv files with more than 10 bam files
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# Ensure headers are the same length
+wc -l *_vaf.tsv
+
+# Add extra lines in headers of files with more than 10 samples
+nano file
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# 11. Cut columns of interest to new files: Chrom Pos Ref Alt then MTR DEP for all samplesq
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#Create list of files of interest in list saved as 'files'
+ls *_vaf.tsv > files
+
+#for first file
+cut -f 3,4,5,6,24,26,39,41,54,56,69,71,84,86,99,101,114,116,129,131,144,146,159,161,174,176 $(sed -n '1p' files) > temp1   #Chr, Pos, Ref, Alt, + MTR, DEP for all samples (max 11 samples in one file)
+
+#for subsequent files (exclude Chr, Pos, Ref, Alt and PDv37is)
+for i in {2..27}
+do
+cut -f 39,41,54,56,69,71,84,86,99,101,114,116,129,131,144,146,159,161,174,176 $(sed -n $i'p' files) >  temp$i
+done
+
+#Remove empty rows where header was with awk
+ls temp* > files2
+for i in {1..27}
+do
+awk 'NF' $(sed -n $i'p' files2) > output$i
+done
+
+
+#Concatenate output files to one merged file
+
+paste output1 output2 output3 output4 output5 output6 output7 output8 output9 output10 output11 output12 output13 output14 output15 output16 output17 output18 output19 output20 output21 output22 output23 output24 output25 output26 output27 > WGS_8pcw_cgpvaf_SNVs.tsv
+
+
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#Continue analysis in R
+
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
