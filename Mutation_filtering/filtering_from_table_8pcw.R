@@ -2,7 +2,6 @@
 library(stringr)
 library(ape)
 library(seqinr)
-library(ggtree)
 library(tidyr)
 library(dplyr)
 library(ggplot2)

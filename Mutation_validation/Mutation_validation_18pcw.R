@@ -111,7 +111,7 @@ pdf("Figures/18pcw/Mutation_validation_binomial_mix_model_18pcw.pdf",width=7,hei
 par(mfrow=c(2,2))
 binomial_mix_plot(mut_counts_df=mut_counts_df,mut_ref_set = auto_private_SNVs,depth_cutoff = 8,title = "18pcw: Private autosomal SNVs (depth>=8)") #
 binomial_mix_plot(mut_counts_df=mut_counts_df,mut_ref_set = auto_private_SNVs,depth_cutoff = 40,nrange=4,title = "18pcw: Private autosomal SNVs (depth>=40)")
-binomial_mix_plot(mut_counts_df=mut_counts_df,mut_ref_set = auto_shared_SNVs,depth_cutoff = 8,title = "18pcw: Shared autosomal SNVs (depth>=8)",ylim=c(0,10))
+binomial_mix_plot(mut_counts_df=mut_counts_df,mut_ref_set = auto_shared_SNVs,depth_cutoff = 8,title = "18pcw: Shared autosomal SNVs (depth>=8)",ylim=c(0,11))
 binomial_mix_plot(mut_counts_df=mut_counts_df,mut_ref_set = auto_shared_SNVs,depth_cutoff = 40, title = "18pcw: Shared autosomal SNVs (depth>=40)",ylim=c(0,10))
 dev.off()
 
