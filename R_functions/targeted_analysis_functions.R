@@ -817,3 +817,38 @@ calculate_cell_frac=function(NV,NR) {
   cell_frac[cell_frac>1]<-1
   return(cell_frac)
 }
+
+#######FUNCTIONS FOR THE BETA-BINOMIAL MUTATION CALLING ALGORITHM########
+
+bbprob.calculator <- function(x_i, n_i, alpha_error, beta_error, alpha_mut, beta_mut, prior_mut) {
+  # x_i is vector of counts of mutant reads across different mutations
+  # n_i is vector of total depth across mutations
+  # alpha_error, beta_error are vectors of the parameters of the error distribution across mutations
+  # alpha_mut, beta_mut are vectors of the parameters of the mutation distribution across mutations
+  # prior_mut is the prior probability that the mutation is present in the sample
+  
+  log_Pr_D_M0 <- lbeta(x_i + alpha_error, n_i - x_i + beta_error) - lbeta(alpha_error, beta_error)
+  log_Pr_D_M1 <- lbeta(x_i + alpha_mut, n_i - x_i + beta_mut) - lbeta(alpha_mut, beta_mut)
+  
+  log_bayes_factor <- log_Pr_D_M0 - log_Pr_D_M1
+  log_odds_prior <- log(prior_mut) - log(1-prior_mut)
+  
+  post_prob <- 1 / (1 + exp(log_bayes_factor - log_odds_prior))
+  return(post_prob)
+}
+
+
+moment.est <- function(x_i, n_i, w_i) {
+  # Function to calculate mu_hat and gamma_hat from data and a given set of weights
+  # Used in estimation of parameters of beta distribution
+  w <- sum(w_i)
+  p_i_hat <- x_i / n_i
+  p_hat <- sum(w_i * p_i_hat) / w
+  S <- sum(w_i * (p_i_hat - p_hat)^2) * (length(n_i)-1) / length(n_i)
+  temp_sum <- sum(w_i * (1 - w_i/w) / n_i)
+  temp_sum_2 <- sum(w_i * (1 - w_i/w))
+  gamma_hat <- (S - p_hat * (1-p_hat) * temp_sum) / (p_hat * (1-p_hat) * (temp_sum_2 - temp_sum))
+  if (is.nan(gamma_hat) | gamma_hat < 0) {gamma_hat <- 0}
+  return(c(p_hat, gamma_hat))
+}
+
