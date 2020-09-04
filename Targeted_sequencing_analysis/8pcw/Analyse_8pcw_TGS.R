@@ -9,8 +9,8 @@ library(plotrix)
 library(phangorn)
 library(RColorBrewer)
 
-my_working_directory="~/R Work/Fetal HSPCs/Phylogeny_of_foetal_haematopoiesis/"
-treemut_dir="~/R Work/R_scripts/treemut/"
+my_working_directory="~/R_work/Phylogeny_of_foetal_haematopoiesis/"
+treemut_dir="~/R_work/treemut" #Path for the cloned "treemut" directory
 setwd(my_working_directory)
 
 #Define the file paths for the data files

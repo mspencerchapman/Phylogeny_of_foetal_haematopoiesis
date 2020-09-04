@@ -1,10 +1,16 @@
-#Cluster the posterior probability vectors from the different tissues
+##PLEASE NOTE
+##The "Analyse_8pcw_TGS.R" must be run prior to this script to ensure all
+##the necessary objects are available in the local environment for this analysis
+
+#This script clusters calculates the soft-cosine similarity between the different tissues undergoing targeted sequencing
+#It then performs clustering on these
+
 library(data.table)
 library(viridis)
 library(dplyr)
 library(tidyr)
 
-my_working_directory="~/R Work/Fetal HSPCs/Phylogeny_of_foetal_haematopoiesis/"
+my_working_directory="~/R_work/Phylogeny_of_foetal_haematopoiesis/"
 setwd(my_working_directory)
 
 #Set the colour scheme for the heat maps
@@ -45,7 +51,7 @@ mut_pairs$uid=apply(mut_pairs[,1:2],1,paste,collapse="-") #create a unique id fo
 
 dim(mut_pairs) #How many are included - gives an idea of how long it will take
 
-new_tree=FALSE
+new_tree=T
 if(new_tree) {
   #Generate data frame of all possible node pairs
   nodes=unique(tree.multi$edge[,2])
@@ -85,14 +91,16 @@ shortest_dist = function(mut_a,mut_b, tree, details) { #the function to look up 
 }
 
 mut_pairs$dist<-NA
-mut_pairs$dist[mut_pairs$uid %in% rownames(ref_dist)]=ref_dist[mut_pairs$uid[mut_pairs$uid %in% rownames(ref_dist)],"dist"]
+if(exists(ref_dist)){ #If you have already run the script and saved the mut_pairs in the "ref_dist" object (see below), this saves time as it avoids re-calculating the distance between pairs
+  mut_pairs$dist[mut_pairs$uid %in% rownames(ref_dist)]=ref_dist[mut_pairs$uid[mut_pairs$uid %in% rownames(ref_dist)],"dist"]
+}
 empties=which(is.na(mut_pairs$dist))
 for(i in empties) {
   mut_pairs$dist[i] <-shortest_dist(mut_a=mut_pairs[i,1],mut_b=mut_pairs[i,2],tree=tree.multi,details=details_targ)
   if(i%%1000==0) {print(i)}
 }
 
-save_dist=FALSE
+save_dist=T #Set this to TRUE the first time you run the script.  If only making minor adjustments to parameters, set to FALSE.
 if(save_dist) {
   ref_dist=mut_pairs[,c("uid","dist")]
   rownames(ref_dist)<-ref_dist$uid
@@ -136,7 +144,6 @@ pdf("Figures/8pcw/Tissue_clustering_heatmap_8pcw.pdf")
 heatmap(sim_mat,
         scale = "none",
         col=viridis,
-        distfun = function(x) dist(x,method="euclidean"),
         hclustfun = function(x) hclust(x, method="complete"),
         labRow = gsub("_"," ",gsub("_comb","",tissues_comb)),
         labCol = gsub("_"," ",gsub("_comb","",tissues_comb)),
