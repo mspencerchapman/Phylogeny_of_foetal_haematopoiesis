@@ -1,3 +1,99 @@
+force.ultrametric=function (tree, method = c("nnls", "extend")) 
+{
+    method <- method[1]
+    if (method == "nnls") 
+        tree <- nnls.tree(cophenetic(tree), tree, rooted = TRUE, 
+            trace = 0)
+    else if (method == "extend") {
+        h <- diag(vcv(tree))
+        d <- max(h) - h
+        ii <- sapply(1:Ntip(tree), function(x, y) which(y == 
+            x), y = tree$edge[, 2])
+        tree$edge.length[ii] <- tree$edge.length[ii] + d
+    }
+    else cat("method not recognized: returning input tree\n\n")
+    tree
+}
+
+nnls.tree = function (dm, tree, rooted = FALSE, trace = 1, weight = NULL, 
+    balanced = FALSE) 
+{
+    if (is.rooted(tree) & rooted == FALSE) {
+        tree <- unroot(tree)
+        warning("tree was rooted, I unrooted the tree!")
+    }
+    tree <- reorder(tree, "postorder")
+    if (balanced) {
+        if (!is.binary(tree)) 
+            stop("tree must be binary")
+        weight <- rowSums(designTree(unroot(tree)))
+    }
+    dm <- as.matrix(dm)
+    k <- dim(dm)[1]
+    labels <- tree$tip.label
+    dm <- dm[labels, labels]
+    y <- dm[lower.tri(dm)]
+    if (rooted) 
+        X <- designUltra(tree)
+    else X <- designUnrooted2(tree)
+    if (!is.null(weight)) {
+        y <- y * sqrt(weight)
+        X <- X * sqrt(weight)
+    }
+    lab <- attr(X, "nodes")
+    if (any(is.na(y))) {
+        ind <- which(is.na(y))
+        X <- X[-ind, , drop = FALSE]
+        y <- y[-ind]
+    }
+    Dmat <- crossprod(X)
+    dvec <- crossprod(X, y)
+    betahat <- as.vector(solve(Dmat, dvec))
+    betahattmp <- betahat
+    bhat <- numeric(max(tree$edge))
+    bhat[as.integer(lab)] <- betahat
+    betahat <- bhat[tree$edge[, 1]] - bhat[tree$edge[, 2]]
+    if (!any(betahat < 0)) {
+        RSS <- sum((y - (X %*% betahattmp))^2)
+        if (trace) 
+            print(paste("RSS:", RSS))
+        attr(tree, "RSS") <- RSS
+        tree$edge.length <- betahat
+        return(tree)
+    }
+    n <- dim(X)[2]
+    l <- nrow(tree$edge)
+    lab <- attr(X, "nodes")
+    ind1 <- match(tree$edge[, 1], lab)
+    ind2 <- match(tree$edge[, 2], lab)
+    Amat <- matrix(0, 2, l)
+    Amat[1, ] <- 1
+    Amat[2, ] <- -1
+    Aind <- matrix(0L, 3, l)
+    Aind[1, ] <- 2L
+    Aind[2, ] <- as.integer(ind1)
+    Aind[3, ] <- as.integer(ind2)
+    if (any(is.na(Aind))) {
+        na_ind <- which(is.na(Aind), arr.ind = TRUE)
+        Aind[is.na(Aind)] <- 0L
+        for (i in seq_len(nrow(na_ind))) {
+            Aind[1, na_ind[i, 2]] <- Aind[1, na_ind[i, 2]] - 
+                1L
+        }
+    }
+    betahat <- quadprog::solve.QP.compact(as.matrix(Dmat), as.vector(dvec), 
+        Amat, Aind)$sol
+    RSS <- sum((y - (X %*% betahat))^2)
+    if (trace) 
+        print(paste("RSS:", RSS))
+    attr(tree, "RSS") <- RSS
+    bhat <- numeric(max(tree$edge))
+    bhat[as.integer(lab)] <- betahat
+    betahat <- bhat[tree$edge[, 1]] - bhat[tree$edge[, 2]]
+    tree$edge.length <- betahat
+    tree
+}
+
 nodeHeights = function (tree, ...) 
 {
     if (hasArg(root.edge)) 
