@@ -611,7 +611,6 @@ generate_targ_seq_plots=function(samples,
 
 #The "squash tree" function to cut the tree at any given node height.  Tree structure is maintained, but edge lengths are shortened.
 squash_tree=function(tree,cut_off=50) {
-  require(phytools)
   tree$edge.length[nodeHeights(tree)[,1]>=cut_off] <-0 #Any edge that starts at or above the cut-off -> 0
   idxs_to_squash=which(nodeHeights(tree)[,1]<=cut_off & nodeHeights(tree)[,2]>cut_off) #Find the edges that start below the cut-off but end-up above it
   new_edge_lengths=cut_off - nodeHeights(tree)[idxs_to_squash,1] #work-out the edge lengths that these should be such that they finish at the cut-off
