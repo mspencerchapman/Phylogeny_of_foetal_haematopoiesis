@@ -5,7 +5,7 @@ library(MCMCglmm)
 library(phangorn)
 library(spam)
 library(INLA)
-library(phylodyn)
+#library(phylodyn)
 library(ggtree)
 
 #Source PC's functions
@@ -50,6 +50,7 @@ make.ultrametric.tree <- function(tree) {
 }
 
 generate.bespoke.plots <- function(tree) {
+	require(phylodyn)
     # Generate different versions of ultrametric tree
     tree.bespoke <- make.ultrametric.tree(tree)
 
@@ -63,6 +64,7 @@ generate.bespoke.plots <- function(tree) {
 
 # Throw away function to compare methods
 generate.diagnostic.plots <- function(tree) {
+	require(phylodyn)
   #Make the tree dichotomous - required for phylodyn
   tree<- multi2di(tree)
   
