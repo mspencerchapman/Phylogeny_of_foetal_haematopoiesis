@@ -1,6 +1,6 @@
 library(devtools)
 library(ape)
-library(phytools)
+#library(phytools)
 library(MCMCglmm)
 library(phangorn)
 library(spam)

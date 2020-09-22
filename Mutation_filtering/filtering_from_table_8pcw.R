@@ -127,7 +127,7 @@ if(previously_run) {
   
   #Add node and pval information to the filtered_muts object
   filtered_muts$COMB_mats.tree.build$mat$node <- tree$edge[res$summary$edge_ml,2]
-  filtered_muts$COMB_mats.tree.build$mat$node <- res$summary$pval
+  filtered_muts$COMB_mats.tree.build$mat$pval <- res$summary$pval
   
   #Save the res file and the tree file
   write.tree(tree, file = tree_file_path)

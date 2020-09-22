@@ -4,7 +4,7 @@ library(seqinr)
 library(optparse)
 library(parallel)
 
-source("/lustre/scratch119/casm/team154pc/ms56/fetal_HSC/R_scripts/foetal.filters.parallel.R") #This should be point to whereever this script is saved
+source("/lustre/scratch119/casm/team154pc/ms56/my_functions/foetal.filters.parallel.R") #This should be point to whereever this script is saved
 
 #Specify options to parse from the command line
 option_list = list(
