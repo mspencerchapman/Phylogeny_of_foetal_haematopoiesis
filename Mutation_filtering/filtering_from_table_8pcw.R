@@ -35,6 +35,8 @@ if(previously_run) {
   #Otherwise start here
   load(mats_and_params_file )
   COMB_mats$nsamp = ncol(COMB_mats$NV)
+  COMB_mats$gender="male"
+  
   min_sample_mean_cov = 0
   
   #Remove the low coverage samples and their private mutations
@@ -52,7 +54,6 @@ if(previously_run) {
   
   #REVIEW MEAN DEPTH HISTOGRAMS TO DECIDE MANUAL CUT-OFFS FOR EXCLUDING OUTLIERS
   #hist(filter_params$mean_depth, breaks = 100, xlim = c(0,60))
-  
   XY_low_depth_cutoff = 5; XY_high_depth_cutoff = 17; AUTO_low_depth_cutoff = 10; AUTO_high_depth_cutoff = 40 #for real analysis
   
   #This is the main function - applies the set cut-offs to the mutation set, filtering the mutations, assigning genotypes for each to all the samples, and building the dummy dna strings for tree building.
@@ -60,24 +61,23 @@ if(previously_run) {
                                        COMB_mats = COMB_mats,  #the main full mutation matrix as outputed by the "HSC_filtering_treebuild_table.R" script
                                        filter_params = filter_params,  #the filter_params matrix as outputed by the "HSC_filtering_treebuild_table.R" script
                                        gender = COMB_mats$gender, #patient's gender
-                                       retain_muts = NULL,  #any mutations that should be manually retained, despite not meeting filtering criteria, NULL by default
-                                       germline_pval_cutoff = -10,  #the log10 pvalue cutoff for mutations coming from an expected germline distribution
-                                       rho_cutoff = 0.1,  #rho cutoff for the beta-binomial filtered
-                                       XY_low_depth_cutoff = XY_low_depth_cutoff,   #mean depth at mutation site cut-off - to remove mis-mapping/ low reliability loci
-                                       XY_high_depth_cutoff = XY_high_depth_cutoff,
-                                       AUTO_low_depth_cutoff= AUTO_low_depth_cutoff,
-                                       AUTO_high_depth_cutoff= AUTO_high_depth_cutoff,
-                                       pval_cutoff_dp2=NULL,  #the p-value cut-off if using the "pval within pos" filter, with positive samples defined as having >= 2 reads
-                                       pval_cutoff_dp3=0.01,   #the p-value cut-off if using the "pval within pos" filter, with positive samples defined as having >= 3 reads (allows for more index hopping)
-                                       min_depth_auto = 6,   #minimum depth that at least one positive sample must have for mutation to be retained (for autosomes)
-                                       min_depth_xy = 4,     #minimum depth that at least one positive sample must have for mutation to be retained (for XY)
+                                       
+                                       #These parameters decide whether a mutation is retained in the "true somatic mutation" set
+                                       retain_muts = early_somatic_muts,  #any mutations that should be manually retained, despite not meeting filtering criteria, NULL by default
+                                       germline_pval = -10,  #the log10 p-value cutoff for mutations coming from an expected germline distribution
+                                       rho = 0.1,  #rho cutoff for the beta-binomial filter, a measure of how "over-dispersed" the counts are compared to a binomial distribution
+                                       mean_depth = c(AUTO_low_depth_cutoff,AUTO_high_depth_cutoff, XY_low_depth_cutoff, XY_high_depth_cutoff),   #Numeric vector of length 4 defining mean depth at mutation site cut-offs. This is in the order 1. lower threshold for autosomes, 2. upper threshold for autosomes, 3. lower threshold for XY, 4. upper threshold for XY. This removes mis-mapping/ low reliability loci.
+                                       pval_dp2=NA,  #the p-value cut-off if using the "pval within pos" filter, with positive samples defined as having >= 2 reads
+                                       pval_dp3=0.01,   #the p-value cut-off if using the "pval within pos" filter, with positive samples defined as having >= 3 reads (allows for more index hopping)
+                                       min_depth = c(6,4), #Numeric vector of length 2 defining minimum depths that at least one positive sample must have for mutation to be retained (AUTO and XY)
                                        min_pval_for_true_somatic = 0.1,   #Default: 0.1. the minimum p-value that at least one sample must have for the variant:normal read distribution coming from that expected for a true somatic
-                                       min_variant_reads_SHARED = 2,  #the minimum number of reads for subsequent samples to be assigned a positive genotype
-                                       min_pval_for_true_somatic_SHARED = 0.05,
-                                       min_vaf_auto = NULL, #to filter by vaf
-                                       min_vaf_xy = NULL, #to filter by vaf
-                                       min_vaf_auto_SHARED = NULL, #to filter by vaf
-                                       min_vaf_xy_SHARED = NULL)  #the p-value for coming from "true somatic mutation" read distribution for subsequent samples to be assigned a positive genotype
+                                       min_vaf = NA, #Numeric vector of length 2 defining minimum vaf in at least one sample for mutation to be retained (AUTO and XY)
+                                       
+                                       #These parameters decide the genotype for each sample for each "true somatic mutation".  These may be less stringent than the initial parameters.
+                                       min_variant_reads_SHARED = 2,  #the minimum number of reads for samples to be assigned a positive genotype
+                                       min_pval_for_true_somatic_SHARED = 0.05,  #the p-value for coming from "true somatic mutation" read distribution to be assigned a positive genotype
+                                       min_vaf_SHARED = NA) #Numeric vector of length 2, defining minimum vaf to be assigned a positive genotype
+  
   
   #Decide an ID for this filtered set, depending on approach taken, and save
   save(filtered_muts, file = filtered_muts_file)
@@ -86,7 +86,7 @@ if(previously_run) {
   write.fasta(filtered_muts$dna_strings, names=names(filtered_muts$dna_strings), dna_string_file)
   
   #BUILD TREE with MPBoot
-  system(paste0("/lustre/scratch117/casm/team268/tc16/Programs/mpboot-sse-1.1.0-Linux/bin/mpboot -s ", dna_string_file," -bb 1000"))
+  system(paste0("/lustre/scratch117/casm/team154/tc16/Programs/mpboot-sse-1.1.0-Linux/bin/mpboot -s ", dna_string_file," -bb 1000"))
   
   #Import the tree into R using ape
   tree <- read.tree(mpboot_tree_file)

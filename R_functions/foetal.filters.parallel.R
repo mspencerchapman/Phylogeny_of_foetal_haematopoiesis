@@ -310,71 +310,112 @@ get_filtered_mut_set = function(input_set_ID,
                                 COMB_mats,
                                 filter_params,
                                 gender,
-                                retain_muts = NULL,
-                                germline_pval_cutoff = -10,#PARAMETERS FOR FILTERING THE MUTATION SET. If parameter is set to null, filter will not be applied.
-                                rho_cutoff = 0.1,
-                                XY_low_depth_cutoff = NULL,
-                                XY_high_depth_cutoff = NULL,
-                                AUTO_low_depth_cutoff=NULL,
-                                AUTO_high_depth_cutoff=NULL,
-                                pval_cutoff_dp2=NULL,
-                                pval_cutoff_dp3=0.01,
-                                min_depth_auto = 6,
-                                min_depth_xy = 4,
-                                min_pval_for_true_somatic = 0.1,
-                                min_vaf_auto = 0.2,
-                                min_vaf_xy = 0.8,
+                                
+                                ##PARAMETERS FOR FILTERING THE MUTATION SET. These arguments set the cut-offs for selecting the set of "true somatic mutations"
+                                #NB. If parameter is set to NA, filter will not be applied.
+                                retain_muts = NA, #vector of "mut_refs" (in format Chrom-Pos-Ref-Alt) to retain even if fail the filtering
+                                germline_pval = -10,  
+                                rho = 0.1, #Beta-binomial filter, rho value cut-off (i.e. rho must be > cut-off)
+                                mean_depth=NA, #Numeric vector of length 4 in the order (1) AUTO min depth cutoff, (2) AUTO max depth cutoff, (3) XY min depth cutoff, (4) XY max depth cutoff
+                                pval_dp2=NA, #Numeric vector of length 1. 
+                                pval_dp3=0.01, #Numeric vector of length 1. 
+                                min_depth = c(6,4), #Numeric vector of length 2 for (1) AUTO and (2) XY muts. Minimum depth that at least one positive sample must have.
+                                min_pval_for_true_somatic = 0.1, #Numeric vector of length 1. At least one sample must have a p-value of >this cutoff for coming from a true somatic distribution.
+                                min_vaf = c(0.2,0.8), #Numeric vector of length 2 for (1) AUTO and (2) XY muts. At least one sample must meet the minimum vaf for the mutation.
+                                
+                                #These arguments decide the thresholds for genotyping each sample. This may be less stringent.
                                 min_variant_reads_SHARED = 2, #PARAMETERS FOR DECIDING GENOTYPE FOR EACH SAMPLE FOR EACH RETAINED MUTATION - should be equal to, or more relaxed than the above. At least one parameter must be used.
                                 min_pval_for_true_somatic_SHARED = 0.05,
-                                min_vaf_auto_SHARED = 0.2,
-                                min_vaf_xy_SHARED = 0.7) {
-  #APPLY THE FILTERS - SET-UP THE "filter_pass" DATAFRAME
-  filter_pass = filter_params
+                                min_vaf_SHARED = c(0.2,0.7) #Numeric vector of length 2 for AUTO and XY muts
+) {
+  #List (1) the names of each of the initial filters that can be applied,
+  #(2) the names of their input parameters,
+  #(3) the variable name that must be present in the filter_params dataframe if filter is being used.
+  #The elements of each must match
+  filter_name=c("Germline filter","Beta-binomial filter","Mean depth filter","P-value within positive samples [defining positive as ≥2 variant reads] filter","P-value within positive samples [defining positive as ≥3 variant reads] filter","Minimum depth filter","Minimum p-value for true somatic mutation filter","Minimum VAF filter")
+  set_parameter=list(germline_pval,rho,mean_depth,pval_dp2,pval_dp3,min_depth,min_pval_for_true_somatic,min_vaf)
+  var_name = c("germline_pval","bb_rhoval","mean_depth","pval_within_pos_dp2","pval_within_pos_dp3","max_depth_in_pos_samples","max_pval_in_pos_sample","max_mut_vaf")
   
-  #Apply all filters that are set. If filter parameter is null, all mutations will pass (i.e. it is set to 1 for all mutations)
-  if(!is.null(germline_pval_cutoff)) {filter_pass$germline_pval = ifelse(log10(filter_params$germline_pval) < germline_pval_cutoff,1, 0)} else {filter_pass$germline_pval = 1}
-  if(!is.null(rho_cutoff)) {filter_pass$bb_rhoval = ifelse(filter_params$bb_rhoval > rho_cutoff, 1, 0)} else {filter_pass$bb_rhoval = 1}
-  if(all(!is.null(AUTO_low_depth_cutoff),!is.null(AUTO_high_depth_cutoff),!is.null(XY_low_depth_cutoff),!is.null(XY_high_depth_cutoff))) {filter_pass$mean_depth = sapply(1:nrow(COMB_mats$NV), assess_mean_depth, COMB_mats = COMB_mats, AUTO_low_depth_cutoff = AUTO_low_depth_cutoff, AUTO_high_depth_cutoff = AUTO_high_depth_cutoff, XY_low_depth_cutoff = XY_low_depth_cutoff, XY_high_depth_cutoff=XY_high_depth_cutoff)} else {filter_pass$mean_depth = 1}
-  if(!is.null(pval_cutoff_dp2)) {filter_pass$pval_within_pos_dp2 = ifelse(filter_params$pval_within_pos_dp2 > pval_cutoff_dp2, 1, 0)} else {filter_pass$pval_within_pos_dp2 = 1}
-  if(!is.null(pval_cutoff_dp3)) {filter_pass$pval_within_pos_dp3 = ifelse(filter_params$pval_within_pos_dp3 > pval_cutoff_dp3, 1, 0)} else {filter_pass$pval_within_pos_dp3 = 1}
-  if(!is.null(min_depth_auto)) {filter_pass$max_depth_in_pos_samples = sapply(1:nrow(COMB_mats$NV), assess_max_depth_in_pos, COMB_mats = COMB_mats, min_depth_auto = min_depth_auto, min_depth_xy = min_depth_xy)} else {filter_pass$max_depth_in_pos_samples = 1}
-  if(!is.null(min_pval_for_true_somatic)) {filter_pass$max_pval_in_pos_sample = ifelse(filter_params$max_pval_in_pos_sample > min_pval_for_true_somatic, 1, 0)} else {filter_pass$max_pval_in_pos_sample = 1}
-  if(!is.null(min_vaf_auto)) {filter_pass$max_mut_vaf = sapply(1:nrow(COMB_mats$NV), assess_max_vaf, COMB_mats = COMB_mats, min_vaf_auto = min_vaf_auto, min_vaf_xy = min_vaf_xy)} else {filter_pass$max_mut_vaf = 1}
+  #List the functions that operate on the input parameters to decide if the mutation is a pass (1) or fail (0) for each filter
+  test_function=list(function(x) {ifelse(log10(filter_params$germline_pval)<x,1,0)},
+                     function(x) {ifelse(filter_params$bb_rhoval > x, 1, 0)},
+                     function(x) {sapply(1:nrow(COMB_mats$NV), assess_mean_depth, COMB_mats = COMB_mats, AUTO_low_depth_cutoff = x[1], AUTO_high_depth_cutoff = x[2], XY_low_depth_cutoff = x[3], XY_high_depth_cutoff=x[4])},
+                     function(x) {ifelse(filter_params$pval_within_pos_dp2 > x, 1, 0)},
+                     function(x) {ifelse(filter_params$pval_within_pos_dp3 > x, 1, 0)},
+                     function(x) {sapply(1:nrow(COMB_mats$NV), assess_max_depth_in_pos, COMB_mats = COMB_mats, min_depth_auto = x[1], min_depth_xy = x[2])},
+                     function(x) {ifelse(filter_params$max_pval_in_pos_sample > x, 1, 0)},
+                     function(x) {sapply(1:nrow(COMB_mats$NV), assess_max_vaf, COMB_mats = COMB_mats, min_vaf_auto = x[1], min_vaf_xy = x[2])}
+  )
   
-  #Select the mutations for output
-  select_muts = apply(filter_pass,1, function(x) all(x == 1))|rownames(filter_pass) %in% retain_muts
-  filter_code = apply(filter_pass, 1, paste, collapse = "-")
-  COMB_mats.tree.build = list_subset(COMB_mats, select_vector = select_muts)
+  #CHECK THE INPUT DATA is all present for the set filters
+  if(any(!c("NR","NV")%in%names(COMB_mats))|!all.equal(dim(COMB_mats$NR),dim(COMB_mats$NV))) {
+    stop(return("COMB_mats object must contain matched NR and NV matrices of equal dimensions"))
+  }
+  
+  if(dim(filter_params)[1]!=dim(COMB_mats$NV)[1]) {
+    stop(return("The filter_params data frame and the COMB_mats$NV and NR matrices must contain the same number of mutations"))
+  }
+  #For any filter that has a set parameter, check that the corresponding variable is included in the filter_params data frame. If not, stop & return an error.
+  for(i in 1:length(filter_name)) {
+    if(!is.na(set_parameter[[i]][1]) & !any(names(filter_params)==var_name[i])) {
+      stop(print(paste(filter_name[i],"needs a variable named",var_name[i],"in the filter_params data frame. Update the filter_params data frame or set the appropriate argument to NA")))
+    }
+  }
+  #If using either 'pval for true somatic' parameter, need to include the PVal matrix in COMB_mats
+  if((!is.na(min_pval_for_true_somatic_SHARED)|!is.na(min_pval_for_true_somatic))&!any(names(COMB_mats)=="PVal")) {
+    stop(return("If using the 'min_pval_for_true_somatic' or 'min_pval_for_true_somatic_SHARED' parameters, the COMB_mats list must contain a matrix called PVal"))
+  }
+  
+  #Apply each of the filter functions, for those with NULL parameters, a vector of 1's is returned (i.e. all mutations "pass" the filter)
+  out=mapply(FUN=function(param,test_function,var_name,filter_name) {
+    if(is.na(param[1])) {
+      return(rep(1,nrow(filter_params)))
+    } else if(!any(names(filter_params)==var_name)){
+      stop(return(paste(filter_name,"needs a variable named:",var_name,"in the filter_params data frame")))
+    } else {
+      return(test_function(param))
+    }
+  },
+  param=set_parameter,
+  test_function=test_function,
+  var_name=var_name,
+  filter_name=filter_name,
+  SIMPLIFY = F)
+  
+  filter_pass=Reduce(cbind,out);rownames(filter_pass)<-rownames(filter_params);colnames(filter_pass)<-var_name #Combine the output & name the rows
+  select_muts = apply(filter_pass,1, function(x) all(x == 1))|rownames(filter_pass) %in% retain_muts #Select the mutations for output. These must pass ALL the applied filters.
+  filter_code = apply(filter_pass, 1, paste, collapse = "-") #Save a "filter_code" vector. This can be used as a quick test for which filter is removing most mutations.
+  COMB_mats.tree.build = list_subset(COMB_mats, select_vector = select_muts) #Subset matrices to include only the PASS mutations
   
   #Set the rownames to the mut_ref, and colnames to the sample names (without MTR or DEP)
-  base::rownames(COMB_mats.tree.build$NV) = base::rownames(COMB_mats.tree.build$NR) = base::rownames(COMB_mats.tree.build$PVal) <- COMB_mats.tree.build$mat$mut_ref
+  rownames(COMB_mats.tree.build$NV) = rownames(COMB_mats.tree.build$NR) = rownames(COMB_mats.tree.build$PVal) <- COMB_mats.tree.build$mat$mut_ref
   colnames = gsub(pattern = "_MTR", replacement = "", x = colnames(COMB_mats.tree.build$NV))
   colnames(COMB_mats.tree.build$NV) = colnames(COMB_mats.tree.build$NR) = colnames(COMB_mats.tree.build$PVal) <- colnames
   
   #BUILD THE GENOTYPE MATRIX
   #Select the "definite positive" samples by setting genotype to 1
-  #First build individual matrices, the same dimensions as the NV matrix, where each cell is 1 if it passes that criteria, or 0 if not. If criteria is null, set to 1.
-  if(!is.null(min_variant_reads_SHARED)) {min_variant_reads_mat <- COMB_mats.tree.build$NV >= min_variant_reads_SHARED} else {min_variant_reads_mat <- 1}
-  if(!is.null(min_pval_for_true_somatic_SHARED)) {min_pval_for_true_somatic_mat <- COMB_mats.tree.build$PVal > min_pval_for_true_somatic_SHARED} else {min_pval_for_true_somatic_mat <- 1}
-  if(!is.null(min_vaf_auto_SHARED) & gender == "female") {
+  #First build individual matrices, the same dimensions as the NV matrix, where each cell is 1 if it passes that criteria, or 0 if not. If criteria is NULL, set to 1.
+  if(!is.na(min_variant_reads_SHARED)) {min_variant_reads_mat <- COMB_mats.tree.build$NV >= min_variant_reads_SHARED} else {min_variant_reads_mat <- 1}
+  if(!is.na(min_pval_for_true_somatic_SHARED)) {min_pval_for_true_somatic_mat <- COMB_mats.tree.build$PVal > min_pval_for_true_somatic_SHARED} else {min_pval_for_true_somatic_mat <- 1}
+  if(!is.na(min_vaf_SHARED[1]) & gender == "female") {
     depth_no_zero = COMB_mats.tree.build$NR
     depth_no_zero[depth_no_zero == 0] <- 1
-    min_vaf_mat <- COMB_mats.tree.build$NV/depth_no_zero > min_vaf_auto_SHARED
-  } else if(!is.null(min_vaf_auto_SHARED) & !is.null(min_vaf_xy_SHARED) & gender == "male") {
+    min_vaf_mat <- COMB_mats.tree.build$NV/depth_no_zero > min_vaf_SHARED[1]
+  } else if(!is.na(min_vaf_SHARED) & gender == "male") {
     min_vaf_mat = matrix(0, ncol = ncol(COMB_mats.tree.build$NV), nrow = nrow(COMB_mats.tree.build$NV))
     xy_muts = COMB_mats.tree.build$mat$Chrom %in% c("X","Y")
     depth_no_zero = COMB_mats.tree.build$NR
     depth_no_zero[depth_no_zero == 0] <- 1
-    min_vaf_mat[xy_muts,] <- COMB_mats.tree.build$NV[xy_muts,]/depth_no_zero[xy_muts,] > min_vaf_xy_SHARED
-    min_vaf_mat[!xy_muts,] <- COMB_mats.tree.build$NV[!xy_muts,]/depth_no_zero[!xy_muts,] > min_vaf_auto_SHARED
-      } else {min_vaf_mat <- 1}
+    min_vaf_mat[xy_muts,] <- COMB_mats.tree.build$NV[xy_muts,]/depth_no_zero[xy_muts,] > min_vaf_SHARED[2]
+    min_vaf_mat[!xy_muts,] <- COMB_mats.tree.build$NV[!xy_muts,]/depth_no_zero[!xy_muts,] > min_vaf_SHARED[1]
+  } else {min_vaf_mat <- 1}
   
   COMB_mats.tree.build$Genotype_bin = min_variant_reads_mat * min_pval_for_true_somatic_mat * min_vaf_mat
   
-  #Select the "not sure" samples by setting genotype to 0.5
-  COMB_mats.tree.build$Genotype_bin[COMB_mats.tree.build$NV > 0 & COMB_mats.tree.build$PVal > 0.01 & COMB_mats.tree.build$Genotype_bin != 1] <- 0.5
-  COMB_mats.tree.build$Genotype_bin[COMB_mats.tree.build$NV >= 3 & COMB_mats.tree.build$PVal > 0.001 & COMB_mats.tree.build$Genotype_bin != 1] <- 0.5  
-  COMB_mats.tree.build$Genotype_bin[(COMB_mats.tree.build$NV == 0) & (COMB_mats.tree.build$PVal > 0.05)] <- 0.5
+  #Select the "not sure" samples by setting genotype to 0.5.  THIS IS THE ONLY SLIGHTLY OPAQUE BIT OF THIS FUNCTION - SET EMPIRICALLY FROM EXPERIMENTATION.
+  COMB_mats.tree.build$Genotype_bin[COMB_mats.tree.build$NV > 0 & COMB_mats.tree.build$PVal > 0.01 & COMB_mats.tree.build$Genotype_bin != 1] <- 0.5 #If have any mutant reads, set as "?" as long as p-value > 0.01
+  COMB_mats.tree.build$Genotype_bin[COMB_mats.tree.build$NV >= 3 & COMB_mats.tree.build$PVal > 0.001 & COMB_mats.tree.build$Genotype_bin != 1] <- 0.5 #If have high numbers of mutant reads, should set as "?" even if incompatible p-value (may be biased sequencing)
+  COMB_mats.tree.build$Genotype_bin[(COMB_mats.tree.build$NV == 0) & (COMB_mats.tree.build$PVal > 0.05)] <- 0.5 #Essentially if inadequate depth to exclude mutation, even if no variant reads
   
   Genotype_shared_bin = COMB_mats.tree.build$Genotype_bin[rowSums(COMB_mats.tree.build$Genotype_bin == 1) > 1,]
   
@@ -382,27 +423,24 @@ get_filtered_mut_set = function(input_set_ID,
   params = list(input_set_ID = input_set_ID,
                 gender = gender,
                 retain_muts = retain_muts,
-                germline_pval_cutoff = -germline_pval_cutoff,
-                rho_cutoff = rho_cutoff,
-                XY_low_depth_cutoff = XY_low_depth_cutoff,
-                XY_high_depth_cutoff = XY_high_depth_cutoff,
-                AUTO_low_depth_cutoff= AUTO_low_depth_cutoff,
-                AUTO_high_depth_cutoff= AUTO_high_depth_cutoff,
-                pval_cutoff_dp2= pval_cutoff_dp2,
-                pval_cutoff_dp3= pval_cutoff_dp3,
-                min_depth_auto = min_depth_auto,
-                min_depth_xy = min_depth_xy,
+                germline_pval = germline_pval,
+                rho = rho,
+                mean_depth = mean_depth,
+                pval_dp2= pval_dp2,
+                pval_dp3= pval_dp3,
+                min_depth = min_depth,
                 min_pval_for_true_somatic = min_pval_for_true_somatic,
                 min_variant_reads_SHARED = min_variant_reads_SHARED,
-                min_pval_for_true_somatic_SHARED = min_pval_for_true_somatic_SHARED)
-                
+                min_pval_for_true_somatic_SHARED = min_pval_for_true_somatic_SHARED,
+                min_vaf_SHARED=min_vaf_SHARED)
+  
   #Save the summary stats of the run
   summary = data.frame(total_mutations = sum(select_muts),
-  				total_SNVs = sum(COMB_mats.tree.build$mat$Mut_type == "SNV"),
-  				total_INDELs = sum(COMB_mats.tree.build$mat$Mut_type == "INDEL"),
-  				shared_mutations = nrow(Genotype_shared_bin),
-  				shared_SNVs = sum(COMB_mats.tree.build$mat$mut_ref %in% rownames(Genotype_shared_bin) & COMB_mats.tree.build$mat$Mut_type == "SNV"),
-  				shared_INDELs = sum(COMB_mats.tree.build$mat$mut_ref %in% rownames(Genotype_shared_bin) & COMB_mats.tree.build$mat$Mut_type == "INDEL"))
+                       total_SNVs = sum(COMB_mats.tree.build$mat$Mut_type == "SNV"),
+                       total_INDELs = sum(COMB_mats.tree.build$mat$Mut_type == "INDEL"),
+                       shared_mutations = nrow(Genotype_shared_bin),
+                       shared_SNVs = sum(COMB_mats.tree.build$mat$mut_ref %in% rownames(Genotype_shared_bin) & COMB_mats.tree.build$mat$Mut_type == "SNV"),
+                       shared_INDELs = sum(COMB_mats.tree.build$mat$mut_ref %in% rownames(Genotype_shared_bin) & COMB_mats.tree.build$mat$Mut_type == "INDEL"))
   #Extract the dummy dna_strings for tree building with MPBoot
   dna_strings = dna_strings_from_genotype(Genotype_shared_bin)
   
@@ -417,6 +455,7 @@ get_filtered_mut_set = function(input_set_ID,
   output = list(COMB_mats.tree.build = COMB_mats.tree.build, Genotype_shared_bin= Genotype_shared_bin, filter_code=filter_code, params = params, summary = summary, dna_strings = dna_strings)
   return(output)
 }
+
 
 #Function to create the dummy dna strings from the shared genotype matrix
 dna_strings_from_genotype = function(genotype_mat) {
