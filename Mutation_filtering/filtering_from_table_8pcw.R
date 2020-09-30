@@ -5,11 +5,12 @@ library(seqinr)
 library(tidyr)
 library(dplyr)
 library(ggplot2)
+library(data.table)
 
-my_working_directory="~/R Work/Fetal HSPCs/Phylogeny_of_foetal_haematopoiesis/"
-treemut_dir="~/R Work/R_scripts/treemut/"
-# my_working_directory="/lustre/scratch119/casm/team154pc/ms56/fetal_HSC/Phylogeny_of_foetal_haematopoiesis"
-# treemut_dir="/lustre/scratch119/casm/team154pc/ms56/fetal_HSC/treemut"
+# my_working_directory="~/R Work/Fetal HSPCs/Phylogeny_of_foetal_haematopoiesis/"
+# treemut_dir="~/R Work/R_scripts/treemut/"
+my_working_directory="/lustre/scratch119/casm/team154pc/ms56/fetal_HSC/Phylogeny_of_foetal_haematopoiesis"
+treemut_dir="/lustre/scratch119/casm/team154pc/ms56/fetal_HSC/treemut"
 setwd(my_working_directory)
 
 R_function_files = list.files("R_functions",pattern=".R",full.names=TRUE)
@@ -31,7 +32,7 @@ file_annot="Data/8pcw/Filtered_mut_set_annotated_8pcw"
 sensitivity_analysis_path <- "Data/8pcw/sensitivity_analysis_8wks"  
 
 #If have previous run analysis - load up files, or can rerun the analysis
-previously_run = TRUE
+previously_run = F
 if(previously_run) {
   load(file_annot); tree <- read.tree(tree_file_path)
 } else {
@@ -66,7 +67,7 @@ if(previously_run) {
                                        gender = COMB_mats$gender, #patient's gender
                                        
                                        #These parameters decide whether a mutation is retained in the "true somatic mutation" set
-                                       retain_muts = early_somatic_muts,  #any mutations that should be manually retained, despite not meeting filtering criteria, NULL by default
+                                       retain_muts = NULL,  #any mutations that should be manually retained, despite not meeting filtering criteria, NULL by default
                                        germline_pval = -10,  #the log10 p-value cutoff for mutations coming from an expected germline distribution
                                        rho = 0.1,  #rho cutoff for the beta-binomial filter, a measure of how "over-dispersed" the counts are compared to a binomial distribution
                                        mean_depth = c(AUTO_low_depth_cutoff,AUTO_high_depth_cutoff, XY_low_depth_cutoff, XY_high_depth_cutoff),   #Numeric vector of length 4 defining mean depth at mutation site cut-offs. This is in the order 1. lower threshold for autosomes, 2. upper threshold for autosomes, 3. lower threshold for XY, 4. upper threshold for XY. This removes mis-mapping/ low reliability loci.
@@ -107,10 +108,11 @@ if(previously_run) {
   res = assign_to_tree(mtr[,df$samples], depth[,df$samples], df, error_rate = p.error) #Get res (results!) object
   treefit_pval_cutoff = 1e-3
   poor_fit = res$summary$pval < treefit_pval_cutoff  #See how many mutations don't have read counts that fit the tree very well
+  poor_fit[which(filtered_muts$COMB_mats.tree.build$mat$mut_ref=="22-37053571-G-A")] <- FALSE #The "lesion segregation" mutation
   sum(poor_fit)
-  hist(log(res$summary$pval[poor_fit]), breaks = 100)
   
   #Good point to review the poor fit ones.  Why poor fit? Then define if any "poor fit" mutations should be kept
+  
   retain_poor_fit <- rep(FALSE, sum(poor_fit))
   retain_poor_fit[1] <- TRUE  #can edit this to any that you would like to keep
   poor_fit[which(poor_fit == TRUE)[retain_poor_fit]] <- FALSE
