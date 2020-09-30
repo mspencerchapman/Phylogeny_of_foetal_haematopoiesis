@@ -6,9 +6,14 @@ library(ggtree)
 library(tidyr)
 library(dplyr)
 library(ggplot2)
+library(data.table)
 
-my_working_directory="~/R Work/Fetal HSPCs/Phylogeny_of_foetal_haematopoiesis/"
-treemut_dir="~/R Work/R_scripts/treemut/"
+# my_working_directory="~/R Work/Fetal HSPCs/Phylogeny_of_foetal_haematopoiesis/" 
+# treemut_dir="~/R Work/R_scripts/treemut/"
+
+my_working_directory="/lustre/scratch119/casm/team154pc/ms56/fetal_HSC/Phylogeny_of_foetal_haematopoiesis"
+treemut_dir="/lustre/scratch119/casm/team154pc/ms56/fetal_HSC/treemut"
+
 setwd(my_working_directory)
 
 R_function_files = list.files("R_functions",pattern=".R",full.names=TRUE)
@@ -16,20 +21,21 @@ sapply(R_function_files,source)
 setwd(treemut_dir); source("treemut.R"); setwd(my_working_directory)
 
 #Set the file paths for saved files based on these IDs.
-mats_and_params_file = "Data/18pcw/Mutation_matrices_and_parameters_18pcw_reduced" #mats_and_params_file ="/lustre/scratch119/realdata/mdt1/team154/ms56/fetal_HSC/filtering_runs/mats_and_params/mats_and_params_a1_MS2_both_reduced"
+mats_and_params_file ="/lustre/scratch119/realdata/mdt1/team154/ms56/fetal_HSC/filtering_runs/mats_and_params/mats_and_params_a1_MS2_both_reduced" #This file is too large to go on github, and must be re-derived from the raw data if needed
 filtered_muts_file = "Data/18pcw/Filtered_mut_set_18pcw"
 dna_string_file = "Data/18pcw/DNA_string_file_18pcw.fa"
 mpboot_tree_file = paste0(dna_string_file,".treefile")
 tree_file_path = "Data/18pcw/Tree_18pcw.tree"
-vcf_header_path = "Data/VCF_header_for_VaGrent.txt"
+vcf_header_path = "Data/vcfHeader.txt"
 vcf_path = "Data/18pcw/Filtered_mut_set_vcf_18pcw.vcf"
+shared_vcf_path="Data/18pcw/Mutations_shared_18pcw.vcf"
 vagrent_input_path = "Data/18pcw/Filtered_mut_set_vcf_with_header_18pcw.vcf"
 vagrent_output_path = paste0(vagrent_input_path,".annot")
 file_annot="Data/18pcw/Filtered_mut_set_annotated_18pcw"
 sensitivity_analysis_path <- "Data/18pcw/sensitivity_analysis_18pcw"  
 
 #If have previous run analysis - load up files
-previously_run = TRUE
+previously_run = FALSE
 if(previously_run) {
   load(file_annot); tree <- read.tree(tree_file_path)
 } else {
@@ -40,7 +46,6 @@ if(previously_run) {
   #Can specify coverage cut-off here, to exclude low coverage samples from analysis - samples too difficult to even place on tree
   min_sample_mean_cov = 4
   other_samples_to_remove = "PD41768id_hum" #must be the sample ID without the "_MTR" or "_DEP" suffix
-  
   COMB_mats$gender="male"
   
   #Remove the low coverage samples and their private mutations
@@ -75,7 +80,7 @@ if(previously_run) {
                                        rho = 0.1,  #rho cutoff for the beta-binomial filter, a measure of how "over-dispersed" the counts are compared to a binomial distribution
                                        mean_depth = c(AUTO_low_depth_cutoff,AUTO_high_depth_cutoff, XY_low_depth_cutoff, XY_high_depth_cutoff),   #Numeric vector of length 4 defining mean depth at mutation site cut-offs. This is in the order 1. lower threshold for autosomes, 2. upper threshold for autosomes, 3. lower threshold for XY, 4. upper threshold for XY. This removes mis-mapping/ low reliability loci.
                                        pval_dp2=NA,  #the p-value cut-off if using the "pval within pos" filter, with positive samples defined as having >= 2 reads
-                                       pval_dp3=0.01,   #the p-value cut-off if using the "pval within pos" filter, with positive samples defined as having >= 3 reads (allows for more index hopping)
+                                       pval_dp3=0.001,   #the p-value cut-off if using the "pval within pos" filter, with positive samples defined as having >= 3 reads (allows for more index hopping)
                                        min_depth = c(6,4), #Numeric vector of length 2 defining minimum depths that at least one positive sample must have for mutation to be retained (AUTO and XY)
                                        min_pval_for_true_somatic = 0.1,   #Default: 0.1. the minimum p-value that at least one sample must have for the variant:normal read distribution coming from that expected for a true somatic
                                        min_vaf = NA, #Numeric vector of length 2 defining minimum vaf in at least one sample for mutation to be retained (AUTO and XY)
@@ -104,7 +109,6 @@ if(previously_run) {
   tree$edge.length = rep(1, nrow(tree$edge)) #Initially need to assign edge lengths of 1 for the tree_muts package to work
   
   #Assign mutations back to the tree
-  setwd("treemut/"); source("treemut.R"); setwd("..") #R scripts have to be sourced within containing directory or outputs an error.
   df = reconstruct_genotype_summary(tree) #Define df (data frame) for treeshape
   
   #Get matrices in order, and run the main assignment functions
@@ -133,19 +137,36 @@ if(previously_run) {
   filtered_muts$COMB_mats.tree.build$mat$node <- tree$edge[res$summary$edge_ml,2]
   filtered_muts$COMB_mats.tree.build$mat$pval <- res$summary$pval
   
-  #Save the res file and the tree file
-  save(res, file = res_file)
+  #Save the tree file
   write.tree(tree, file = tree_file_path)
   
   #ANNOTATING THE MUTATIONS
   #-----------------------------------------------
   #Write vcf files for VariantCaller analysis - separate out "All mutations" & Shared mutations"
   vcf_file = create_vcf_files(filtered_muts$COMB_mats.tree.build$mat)
-  write.table(vcf_file, sep = "\t", quote = FALSE, file = "Data/18pcw/Mutations_all_18pcw.vcf", row.names = FALSE)
+  write.table(vcf_file, sep = "\t", quote = FALSE, file = vcf_path, row.names = FALSE)
   
   #Also save the shared mutations for mutational signature analysis
   shared_vcf_file = create_vcf_files(filtered_muts$COMB_mats.tree.build$mat,select_vector = which(!filtered_muts$COMB_mats.tree.build$mat$node%in%1:length(tree$tip.label)))
-  write.table(shared_vcf_file, sep = "\t", quote = FALSE, file = "Data/18pcw/Mutations_shared_18pcw.vcf", row.names = FALSE)
+  write.table(shared_vcf_file, sep = "\t", quote = FALSE, file = shared_vcf_path, row.names = FALSE)
+  
+  #1. paste vcf file to a dummy header file
+  system(paste0("cat ",vcf_header_path," ",vcf_path," > ", vagrent_input_path))
+  
+  #2. commands to run vagrent
+  system(paste0("AnnotateVcf.pl -i ",vagrent_input_path," -o ",vagrent_output_path," -sp Human -as NCBI37 -c /lustre/scratch117/casm/team78pipelines/reference/human/GRCh37d5/vagrent/e75/vagrent.cache.gz"))
+  
+  #3. import vagrent output
+  vagrent_output = fread(vagrent_output_path,skip = "#CHROM")
+  annot_info = as.data.frame(str_split(vagrent_output$INFO, pattern = ";",simplify = TRUE), stringsAsFactors = FALSE)
+  colnames(annot_info) <- c("VT","VD","VC","VW")
+  
+  annot_info$VC <- gsub(x=annot_info$VC, pattern = "VC=", replacement = "")
+  annot_info$VT <- gsub(x=annot_info$VT, pattern = "VT=", replacement = "")
+  annot_info$VW <- gsub(x=annot_info$VW, pattern = "VW=", replacement = "")
+  annot_info$VD <- gsub(x=annot_info$VD, pattern = "VD=", replacement = "")
+  
+  filtered_muts$COMB_mats.tree.build$mat <- cbind(filtered_muts$COMB_mats.tree.build$mat,split_vagrent_output(df = annot_info,split_col = "VD"))
   
   #-----------------------------------------------
   #Save the annotated filtered_muts files (post tree filtering)

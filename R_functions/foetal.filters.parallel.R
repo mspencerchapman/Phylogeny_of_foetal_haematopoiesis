@@ -525,6 +525,7 @@ import_cgpvaf_output=function(cgpvaf_output_file,ref_ID="PDv37is") {
   return(combined_mats)
 }
 
+#Function to import the cgpVAF output matrices neatly into R in the format that is used in my scripts
 import_cgpvaf_SNV_and_INDEL = function(SNV_output_file,INDEL_output_file=NULL) {
   #Import cgpVAF snp output file for the single-cell colonies, create the mut_ref column, and extract the mut and dep cols
   SNV_mats=import_cgpvaf_output(SNV_output_file)
@@ -537,5 +538,16 @@ import_cgpvaf_SNV_and_INDEL = function(SNV_output_file,INDEL_output_file=NULL) {
   } else {
     return(SNV_mats)
   }
+}
+
+#Function to split up the imported output from VAGRENT in a neat way
+split_vagrent_output = function(df,split_col,col_IDs = c("Gene","Transcript","RNA","CDS","Protein","Type","SO_codes")) {
+  col = df[[split_col]]
+  output = matrix(nrow = nrow(df), ncol = length(col_IDs))
+  for(i in 1:length(col_IDs)) {
+    output[,i] = str_split(col, pattern = "\\|", simplify = TRUE)[,i]
+  }
+  colnames(output) = col_IDs
+  return(as.data.frame(output))
 }
 

@@ -172,10 +172,10 @@ get_node_cell_frac = function(node,sample,tree,details,matrices){
   } else {
     auto_muts=node_muts[!grepl("X",node_muts)&!grepl("Y",node_muts)]
     xy_muts=node_muts[grepl("X",node_muts)|grepl("Y",node_muts)]
-    auto_cell_NV = sum(matrices$mtr[auto_muts,sample])
-    auto_cell_NR = sum(matrices$dep[auto_muts,sample])
-    xy_cell_NV = sum(matrices$mtr[xy_muts,sample])
-    xy_cell_NR = sum(matrices$dep[xy_muts,sample])
+    auto_cell_NV = sum(matrices$NV[auto_muts,sample])
+    auto_cell_NR = sum(matrices$NR[auto_muts,sample])
+    xy_cell_NV = sum(matrices$NV[xy_muts,sample])
+    xy_cell_NR = sum(matrices$NR[xy_muts,sample])
     if(auto_cell_NR+xy_cell_NR == 0) {
       return(NA)
     } else {
@@ -284,7 +284,7 @@ get_ancestral_nodes= function(node,edge,exclude_root=TRUE){
 #Function to extract the node counts from mutations on a given branch, for a given sample
 #Divides counts into auto & XY mutations, and returns as a df
 get_node_read_counts=function(node,sample,tree,details,matrices,exclude_mut_indexes=NULL) {
-  info=get_edge_info(tree.multi,details,node)
+  info=get_edge_info(tree,details,node)
   
   #Exclude mutations from a branch if they match those given
   if(!is.null(exclude_mut_indexes)) {
@@ -475,6 +475,141 @@ plotDonut=function(x,y,median=NA,radius,col,prop,llwd=0.5,border=NA,width=NA,plo
 ###THE MAIN PLOTTING FUNCTION FOR THE TREES##
 #Not entirely self-sufficient.  Needs various appropriately labelled objects in the environment
 
+# generate_targ_seq_plots=function(samples,
+#                                  tree,
+#                                  details_targ,
+#                                  matrices,
+#                                  post_prob_type=c("raw","clean"),
+#                                  info_type=c("post.prob","cell_frac","log_cell_frac"),
+#                                  prob_threshold_to_include=0.5, #Probability threshold from the post.prob matrix for plotting
+#                                  plot_cell_frac=TRUE,
+#                                  plot_donut=TRUE,
+#                                  donut_info="cell_frac", #other option is "lineages_lost"
+#                                  CI=0.8,  #Confidence intervals on the pie chart, default = 80% CI
+#                                  radius=3.5,  #Radius of the pie charts on the plot
+#                                  scale_muts_to_branch=FALSE) {
+#   require(plotrix)
+#   if(post_prob_type=="raw") {
+#     post.prob.mat <-post.prob[details_targ$mut_ref,]
+#   } else if(post_prob_type=="clean"){
+#     post.prob.mat <-clean.post.prob[details_targ$mut_ref,]
+#   }
+#   if(info_type=="post.prob") {
+#     post.prob.mat[post.prob.mat<0.05] <- 0
+#     details_targ_full=cbind(details_targ,post.prob.mat)
+#   } else {
+#     cell_frac=calculate_cell_frac(matrices$NV,matrices$NR)
+#     cell_frac_present<-cbind(cell_frac,cell_frac[,gsub("_comb","",colnames(post.prob.mat)[grep("_comb",colnames(post.prob.mat))])]) #To double up the "_comb" results, so that matched the post.prob.mat
+#     cell_frac_present=cell_frac_present[details_targ$mut_ref,]
+#     colnames(cell_frac_present)<- colnames(post.prob)
+#     cell_frac_present[post.prob.mat<prob_threshold_to_include]<-0
+#     if(info_type=="cell_frac") {
+#       details_targ_full=cbind(details_targ,cell_frac_present)
+#     } else if(info_type=="log_cell_frac") {
+#       log_cell_frac_present=cell_frac_present
+#       log_cell_frac_present[cell_frac_present != 0] <- log(log_cell_frac_present[cell_frac_present != 0])#change all the non 0 vafs to the log of their vaf
+#       log_cell_frac_present_scaled=log_cell_frac_present
+#       scale_range=c(0.01,1)
+#       log_cell_frac_present_scaled[cell_frac_present!=0] = plotrix::rescale(log_cell_frac_present[cell_frac_present!=0],newrange = scale_range) #scale these figures between 0 and 1
+#       details_targ_full=cbind(details_targ,log_cell_frac_present_scaled)
+#     }
+#   }
+#   lims=par("usr")
+#   sapply(samples, function(sample) {
+#     tree=plot_tree(tree, cex.label = 0,lwd=0.5,plot_axis = TRUE,default_edge_color="lightgrey")
+#     lims=par("usr")
+#     if(grepl("PD",sample)) {
+#       text(0,lims[4]-1,paste0(lcm_smry$Tissue[lcm_smry$Sample_ID==sample]," (",sample,"): Mean depth is ",round(mean(NR[,gsub("_comb","",sample)]),digits = 2)),cex=1,pos=4)
+#     } else {
+#       text(0,lims[4]-0.5,paste0(sample,": Mean depth is ",round(mean(NR[,gsub("_comb","",sample)]),digits = 2)),cex=1,pos=4)
+#     }
+#     if(grepl("PD",sample)) {
+#       text(0,lims[4]-3,paste0("Library concentration was ",round(lcm_smry$Conc[lcm_smry$Sample_ID==sample],digits=0)),pos=4)
+#     }
+#     
+#     
+#     add_annotation(tree=tree,
+#                    details=details_targ_full,
+#                    matrices,
+#                    annot_function=function(tree,details,matrices,node) {
+#                      add_var_col(tree,
+#                                  details,
+#                                  matrices,
+#                                  node,
+#                                  var_field = sample,
+#                                  pval_based=FALSE,
+#                                  lwd = 5,
+#                                  colours=colour.scale,
+#                                  scale_muts_to_branch=scale_muts_to_branch)
+#                    }
+#     )
+#     if(plot_cell_frac) {
+#       add_annotation_targeted(sample,
+#                               tree=tree,
+#                               details=details_targ_full,
+#                               matrices=matrices,
+#                               annot_function=function(node,sample,tree,details,matrices,cex=0.6) {
+#                                 node_cell_frac=get_node_cell_frac(node,gsub("_comb","",sample),tree,details,matrices)
+#                                 info=get_edge_info(tree,details,node)
+#                                 if(!is.na(node_cell_frac) & any(post.prob.mat[info$idx.in.details,sample]>prob_threshold_to_include)) {
+#                                   text(info$x,info$yb,round(node_cell_frac,digits=3),cex = cex,col="black",font=2)
+#                                 }
+#                               })
+#     }
+#     if(plot_donut) {
+#       #Detect which nodes to plot donuts for - do it for branches with a mean clean.post.prob of >0.5
+#       nodes_to_check=unique(tree$edge[,2])[!unique(tree$edge[,2])%in%1:length(tree$tip.label)]
+#       nodes_to_include=sapply(nodes_to_check,function(node) {
+#         if(mean(post.prob.mat[details_targ$node==node,sample])>0.5){return(node)}else{return(NA)}
+#       })
+#       nodes_to_include<-nodes_to_include[!is.na(nodes_to_include)]
+#       
+#       if(donut_info=="cell_frac") {
+#         #Iterate through these nodes and plot the donuts
+#         for(node in nodes_to_include) {
+#           print(node)
+#           data=node_lineage_loss(node=node,sample=sample,tree = tree,details = details_targ,matrices=matrices,boot_straps = 10000,CI=CI,return_ancestral_cell_frac = TRUE)
+#           #Make the pie chart for plotting on the node
+#           df2<-data%>%dplyr::select(-median)%>%gather(key="category",value="count")
+#           df2$ymax = df2$count
+#           df2$ymin = c(0, head(df2$ymax, n=-1))
+#           df2=rbind(df2,data.frame(category="lineages_lost",count=(1-df2$ymax[df2$category=="upper_CI"]),ymax=1,ymin=(df2$ymax[df2$category=="upper_CI"])))
+#           df2$prop=df2$ymax-df2$ymin
+#           
+#           #Get the node co-ordinates
+#           info=get_edge_info(node=node,tree=tree,details=details_targ)
+#           #Plot the pie chart
+#           #plotDonut(info$x,mean(c(info$yb,info$yt)),median=data$median,radius=radius,col=c( "#8D8DCB" ,"#C6C6E5", "#FFFFFF"),prop=df2$prop,border="black")
+#           
+#           median_only_prop=c(data$median,1-data$median)
+#           
+#           plotDonut(info$x,mean(c(info$yb,info$yt)),radius=radius,col=c( "#08306B" ,"#FFFFFF"),prop=median_only_prop,border="black",plotPie = TRUE)
+#         }
+#       } else if(donut_info=="lineages_lost") {
+#         
+#         #Iterate through these nodes and plot the donuts
+#         for(node in nodes_to_include) {
+#           print(node)
+#           data=node_lineage_loss(node=node,sample=sample,tree = tree,details = details_targ,matrices=matrices,boot_straps = 10000,CI=CI,return_ancestral_cell_frac = FALSE)
+#           #Make the pie chart for plotting on the node
+#           df2<-data%>%select(-median)%>%gather(key="category",value="count")
+#           df2$ymax = df2$count
+#           df2$ymin = c(0, head(df2$ymax, n=-1))
+#           df2=rbind(df2,data.frame(category="lineages_lost",count=(1-df2$ymax[df2$category=="upper_CI"]),ymax=1,ymin=(df2$ymax[df2$category=="upper_CI"])))
+#           df2$prop=df2$ymax-df2$ymin
+#           
+#           #Get the node co-ordinates
+#           info=get_edge_info(node=node,tree=tree,details=details_targ)
+#           #Plot the pie chart
+#           plotDonut(info$x,info$yb,median=data$median,radius=radius,col=c( "#8D8DCB" ,"#C6C6E5", "#FFFFFF"),prop=df2$prop,border="black",plotPie = TRUE)
+#         }
+#       }
+#     }
+#   }
+#   )
+# }
+
+#Updated version of the function
 generate_targ_seq_plots=function(samples,
                                  tree,
                                  details_targ,
@@ -490,18 +625,16 @@ generate_targ_seq_plots=function(samples,
                                  scale_muts_to_branch=FALSE) {
   require(plotrix)
   if(post_prob_type=="raw") {
-    post.prob.mat <-post.prob[details_targ$mut_ref,]
+    post.prob.mat <-post.prob[details_targ$mut_ref,samples,drop=F]
   } else if(post_prob_type=="clean"){
-    post.prob.mat <-clean.post.prob[details_targ$mut_ref,]
+    post.prob.mat <-clean.post.prob[details_targ$mut_ref,samples,drop=F]
   }
   if(info_type=="post.prob") {
     post.prob.mat[post.prob.mat<0.05] <- 0
     details_targ_full=cbind(details_targ,post.prob.mat)
   } else {
-    cell_frac=calculate_cell_frac(matrices$NV,matrices$NR)
-    cell_frac_present<-cbind(cell_frac,cell_frac[,gsub("_comb","",colnames(post.prob.mat)[grep("_comb",colnames(post.prob.mat))])]) #To double up the "_comb" results, so that matched the post.prob.mat
-    cell_frac_present=cell_frac_present[details_targ$mut_ref,]
-    colnames(cell_frac_present)<- colnames(post.prob)
+    cell_frac_present=calculate_cell_frac(matrices$NV[,gsub("_comb","",samples),drop=F],matrices$NR[,gsub("_comb","",samples),drop=F])
+    colnames(cell_frac_present)<-samples
     cell_frac_present[post.prob.mat<prob_threshold_to_include]<-0
     if(info_type=="cell_frac") {
       details_targ_full=cbind(details_targ,cell_frac_present)
@@ -544,12 +677,14 @@ generate_targ_seq_plots=function(samples,
                    }
     )
     if(plot_cell_frac) {
+      print("Plotting cell fraction")
       add_annotation_targeted(sample,
                               tree=tree,
                               details=details_targ_full,
                               matrices=matrices,
                               annot_function=function(node,sample,tree,details,matrices,cex=0.6) {
                                 node_cell_frac=get_node_cell_frac(node,gsub("_comb","",sample),tree,details,matrices)
+                                node_cell_frac<-min(node_cell_frac,1)
                                 info=get_edge_info(tree,details,node)
                                 if(!is.na(node_cell_frac) & any(post.prob.mat[info$idx.in.details,sample]>prob_threshold_to_include)) {
                                   text(info$x,info$yb,round(node_cell_frac,digits=3),cex = cex,col="black",font=2)
@@ -608,6 +743,7 @@ generate_targ_seq_plots=function(samples,
   }
   )
 }
+
 
 #The "squash tree" function to cut the tree at any given node height.  Tree structure is maintained, but edge lengths are shortened.
 squash_tree=function(tree,cut_off=50) {
@@ -691,9 +827,94 @@ clean_up_post=function(post.prob,details,tree) { #post.prob is the named vector 
   return(clean.post)
 }
 
+#This is the alternative clean up function that uses a maximum likelihood model to decide if "outlier" mutations that are positive are likely to be genuine or error
+clean_up_post_2=function(sample,all.post.prob,tree,details,post.prob_cutoffs=c(0.05,0.15,0.3,0.5)) {
+  print(sample)
+  post.prob.sample=all.post.prob[,sample]
+  for(k in 1:length(post.prob_cutoffs)) {
+    print(k)
+    post.prob_cutoff=post.prob_cutoffs[k]
+    #Find all muts with a post.prob value > cut-off
+    positive_muts=names(post.prob.sample[post.prob.sample>post.prob_cutoff])
+    
+    #See which ones have a proximal branch with any negative/ lower post.prob values - the "outliers"
+    select_outliers=sapply(positive_muts, function(mut){
+      node=details$node[details$mut_ref==mut]
+      ancestral_node=tree$edge[tree$edge[,2]==node,1]
+      if(ancestral_node==278) {
+        return(FALSE)
+      } else {
+        return(any(post.prob.sample[details$mut_ref[details$node==ancestral_node]]<post.prob_cutoff))
+      }
+    })
+    outlier_muts=positive_muts[select_outliers]
+    if(length(outlier_muts)==0){break}
+    
+    #If there are more than one mutation from the outlier branch, select the one with the highest post.prob
+    outlier_muts=unlist(lapply(unique(details$node[details$mut_ref%in%outlier_muts]),function(node){
+      if(sum(details$mut_ref%in%outlier_muts&details$node==node)>1) {
+        post.probs=post.prob.sample[details$mut_ref%in%outlier_muts&details$node==node]
+        return(details$mut_ref[details$mut_ref%in%outlier_muts&details$node==node][which.max(post.probs)])
+      } else {
+        return(details$mut_ref[details$mut_ref%in%outlier_muts&details$node==node])
+      }
+    }))
+    
+    #Work out the likelihoods of different VAFs to explain the positive AND negative counts - find the maximum
+    #Then compare this likelihood to the likelihood that the outlier mutation was explained by artefact
+    res=sapply(outlier_muts,function(outlier_mut) {
+      #print(outlier_mut)
+      outlier_node=details$node[details$mut_ref==outlier_mut]
+      ancestral_nodes=get_ancestral_nodes(outlier_node,tree$edge)[-1]
+      negative_ancestors=ancestral_nodes[sapply(ancestral_nodes,function(node) any(post.prob.sample[details$node==node]<post.prob_cutoff))]
+      NV_vec=NV[details$node%in%negative_ancestors & post.prob.sample<post.prob_cutoff,sample]
+      NR_vec=NR[details$node%in%negative_ancestors & post.prob.sample<post.prob_cutoff,sample]
+      
+      prob_grid=seq(0.001,0.2,by=0.001)
+      out=sapply(prob_grid,function(prob) {
+        LL_neg=sum(dbinom(NV_vec,NR_vec,prob = prob,log = T))
+        LL_outlier=dbinom(NV[outlier_mut,sample],NR[outlier_mut,sample],prob=prob,log=T)
+        #LL_outlier=dbetabinom(NV[outlier_mut,sample],NR[outlier_mut,sample],prob=prob,rho=0.05,log=T)
+        total_LL=LL_neg+LL_outlier
+        return(total_LL)
+      })
+      mlprob=prob_grid[which.max(out)]
+      alpha_outlier=alpha_error[outlier_mut]
+      beta_outlier=beta_error[outlier_mut]
+      mu_outlier=alpha_outlier/(alpha_outlier+beta_outlier)
+      rho_outlier=(1+alpha_outlier+beta_outlier)^(-1)
+      LL_neg_outlier=dbetabinom(NV[outlier_mut,sample],NR[outlier_mut,sample],prob = mu_outlier,rho=rho_outlier,log = T)
+      return(c(ml_vaf=mlprob,mll=max(out),errorll=LL_neg_outlier))
+    })
+    
+    #if (1) the MLL (maximum log likelihood) vaf is >0.01 (i.e. not contamination)
+    #and (2) MLL is > 1 more than the error LL
+    #-> increase the post.prob of the proximal mutations to that of the outlier (these mutations were most likely to have been missed be chance)
+    #Otherwise, set the outlier post.prob to 0 (i.e. outlier more likely to be error/ contamination)
+    
+    outlier_df<-res%>%
+      t()%>%
+      as.data.frame()%>%
+      tibble::rownames_to_column(var="mut_ref")%>%
+      mutate(ll_diff=mll-errorll)%>%
+      mutate(genuine=ifelse(ll_diff>1&ml_vaf>0.01,"yes","no"))
+    
+    for(i in 1:nrow(outlier_df)) {
+      if(outlier_df$genuine[i]=="no") {
+        post.prob.sample[outlier_df$mut_ref[i]]<-0
+      } else if (outlier_df$genuine[i]=="yes"){
+        outlier_node=details$node[details$mut_ref==outlier_df$mut_ref[i]]
+        outlier_post.prob=post.prob.sample[outlier_df$mut_ref[i]]
+        ancestral_nodes=get_ancestral_nodes(outlier_node,tree$edge)[-1]
+        negative_ancestral_muts=names(post.prob.sample[details$node%in%ancestral_nodes & post.prob.sample<post.prob_cutoff])
+        post.prob.sample[negative_ancestral_muts]<-outlier_post.prob
+      }
+    }
+  }
+  return(post.prob.sample)
+}
 
 ##Tim's Binomial mixture model functions
-
 ## Expectation step
 estep = function(x,size,p.vector,prop.vector,ncomp){
   ## p.vector = vector of probabilities for the individual components
