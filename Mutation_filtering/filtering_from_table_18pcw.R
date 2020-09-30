@@ -170,7 +170,7 @@ if(previously_run) {
   
   #-----------------------------------------------
   #Save the annotated filtered_muts files (post tree filtering)
-  save(filtered_muts, file = file_annot)
+  #save(filtered_muts, file = file_annot)
 }
 
 #-----------------------------------------------
@@ -201,7 +201,7 @@ tree_SNV_c = get_corrected_tree(tree = tree_SNV, details = filtered_muts$COMB_ma
 
 ##LINEAR REGRESSION MODEL FOR CORRECTION
 #This needs the table of sequencing summary statistics used for the regression
-smry_seq_18pcw=read.csv("Data/18pcw/smry_seq.csv")
+smry_seq_18pcw<-read.csv("Data/18pcw/smry_seq_18pcw.csv")
 #(1) Get the corrected private branch lengths for each sample
 private_mut_burden=tree_SNV_c$edge.length[tree_SNV_c$edge[,2]%in%1:length(tree_SNV_c$tip.label)]
 #(2) Get a matched vector of sequencing coverage
@@ -242,11 +242,9 @@ dev.off()
 #------------------------------------------------------------------
 #PLOT THE CELL MIGRATION TREE TO SHOW LACK OF CLUSTERING BY LOCATION
 #------------------------------------------------------------------
-smry_seq = read.csv("Data/18pcw/smry_seq.csv", stringsAsFactors = FALSE)
-
 #Label tree by the tissue that they were isolated from (liver, femur 1 or femur 2)
 tree_SNV_c$tip.label=gsub("_hum","",tree_SNV_c$tip.label)
-tree_SNV_c$tip.label=as.character(sapply(tree_SNV_c$tip.label, function(sample) smry_seq$Tissue[which(smry_seq$Donor_ID==sample)]))
+tree_SNV_c$tip.label=as.character(sapply(tree_SNV_c$tip.label, function(sample) smry_seq_18pcw$Tissue[which(smry_seq_18pcw$Donor_ID==sample)]))
 
 #Make the tree ultra-metric for visualization
 tree_SNV_c_ultra <- make.ultrametric.tree(tree_SNV_c)
