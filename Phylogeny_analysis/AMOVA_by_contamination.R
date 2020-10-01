@@ -1,3 +1,6 @@
+##THIS SCRIPT TESTS FOR ANY CLUSTERING ON THE TREE BY THE DEGREE OF MOUSE DNA CONTAMINATION
+#IT TAKES THE TOP 20% of MOST CONTAMINATED SAMPLES (which is approximately all that have >40% contamination) AND CHECKS IF THEY SIGNIFICANTLY CLUSTER ON THE TREE USING THE AMOVA METHOD
+
 library(stringr)
 library(ape)
 library(seqinr)
@@ -90,8 +93,36 @@ tree_hybrid$edge.length <- tree_SNV_c$edge.length + tree_INDEL$edge.length
 #Makes sense for this analysis to make the tree ultra-metric. Use Peter's function (need to source the code to make this work)
 utree = make.ultrametric.tree(tree_hybrid)
 
+
+#Show lack of clustering by degree of mouse contamination
+smry_seq_18pcw=smry_seq_18pcw[smry_seq_18pcw$Donor_ID%in%utree$tip.label,]
+quants<-quantile(smry_seq_18pcw$Percentage,c(0.2,0.5,0.8))
+dist_mat=cophenetic.phylo(utree)
+q1=smry_seq_18pcw$Donor_ID[smry_seq_18pcw$Percentage<quants[1]]
+q4=smry_seq_18pcw$Donor_ID[smry_seq_18pcw$Percentage>quants[3]]
+
+#Compare clustering within the most contaminated quintile, vs between the most & least contaminated quintiles
+within_group=unlist(lapply(q1,function(sample) {dist_mat[sample,q1[q1!=sample]]}))
+without_group=unlist(lapply(q1,function(sample) {dist_mat[sample,q4]}))
+mean(within_group)
+mean(without_group)
+data.frame(quant=rep("q1",length(within_group)+length(without_group)),
+           group=c(rep("within_most_contaminated",length(within_group)),rep("between_most_and_least_contaminated",length(without_group))),
+           dist=c(within_group,without_group))%>%
+  ggplot(aes(x=group,y=dist,col=group))+
+  geom_jitter(alpha=0.2,width = 0.4,height=0.05)+
+  #geom_boxplot()+
+  theme_classic()+
+  my_theme+
+  theme(text=element_text(size=7),legend.position="none")+
+  labs(y="Phylogenetic distance of CFU pairs",
+       x="Sample pairs within most contaminated pairs vs most & least contaminated pairs",
+       title = "Absence of clustering of samples by level of murine DNA contamination")
+
+
 cellkey <- data.frame(Sample = utree$tip.label, stringsAsFactors = FALSE)
-cellkey$Cell_type <- sapply(utree$tip.label, function(x) smry_seq_18pcw$Tissue[which(smry_seq_18pcw$Donor_ID == x)])
+smry_seq_18pcw$contamination_group=ifelse(smry_seq_18pcw$Percentage<quantile(smry_seq_18pcw$Percentage,0.2),"high","low")
+cellkey$Cell_type <- sapply(utree$tip.label, function(x) smry_seq_18pcw$contamination_group[which(smry_seq_18pcw$Donor_ID == x)])
 
 #Build a distance matrix
 myvcv <- vcv(utree)
@@ -160,8 +191,8 @@ amovapval.fn <- function(distmat, groupnames, cell_key, iterations, plottitle) {
 }
 
 #RUN FOR THE 18 PCW SAMPLE LOCATIONS
-pdf("Figures/18pcw/AMOVA_cell_location_18pcw.pdf",width=5,height=5)
-amovapval.fn(distmat = distmat, groupnames = c("F1", "F2", "L"), cell_key = cellkey, iterations = 30000, plottitle = "Phylogenetic clustering of HSPC locations")
+pdf("Figures/18pcw/Lack_of_clustering_by_mouseDNA_contamination_18pcw.pdf",width=5,height=5)
+amovapval.fn(distmat = distmat, groupnames = c("low","high"), cell_key = cellkey, iterations = 30000, plottitle = "Phylogenetic clustering by contamination")
 dev.off()
 
 

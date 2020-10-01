@@ -7,8 +7,8 @@ library(dplyr)
 library(ggplot2)
 library(data.table)
 
-# my_working_directory="~/R Work/Fetal HSPCs/Phylogeny_of_foetal_haematopoiesis/"
-# treemut_dir="~/R Work/R_scripts/treemut/"
+# my_working_directory="~/R_work/Phylogeny_of_foetal_haematopoiesis/"
+# treemut_dir="~/R_work/treemut/"
 my_working_directory="/lustre/scratch119/casm/team154pc/ms56/fetal_HSC/Phylogeny_of_foetal_haematopoiesis"
 treemut_dir="/lustre/scratch119/casm/team154pc/ms56/fetal_HSC/treemut"
 setwd(my_working_directory)
@@ -32,7 +32,7 @@ file_annot="Data/8pcw/Filtered_mut_set_annotated_8pcw"
 sensitivity_analysis_path <- "Data/8pcw/sensitivity_analysis_8wks"  
 
 #If have previous run analysis - load up files, or can rerun the analysis
-previously_run = F
+previously_run = T
 if(previously_run) {
   load(file_annot); tree <- read.tree(tree_file_path)
 } else {
