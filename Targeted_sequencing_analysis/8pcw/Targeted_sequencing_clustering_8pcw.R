@@ -29,7 +29,7 @@ cell_frac=calculate_cell_frac(NV=NV,NR=NR)
 cell_frac_present<-cell_frac[details_targ$mut_ref,gsub("_comb","",samples)]
 
 ##Include mutations present with highest confidence. Set any with a prob < threshold of 0.9 (in the combined prob vectors) to 0.
-prob_threshold_to_include<-0.9
+prob_threshold_to_include<-0.5
 cell_frac_present[clean.post.prob[details_targ$mut_ref,samples]<prob_threshold_to_include]<-0
 #Log transform and scale the data to be between 0.01 and 1
 log_cell_frac_present=cell_frac_present
@@ -39,8 +39,8 @@ scale_range=c(0.05,1) #The scale range impacts on results, as it sets the differ
 log_cell_frac_present_scaled[cell_frac_present!=0] = plotrix::rescale(log_cell_frac_present[cell_frac_present!=0],newrange = scale_range) #scale these figures between 0.01 and 1
 
 #Transform the data for the rest of the analysis
-data=t(log_cell_frac_present_scaled[rowSums(clean.post.prob[,germ_layers_comb]>prob_threshold_to_include)>0,])
-sum(rowSums(clean.post.prob[,germ_layers_comb]>prob_threshold_to_include)>0) #Print the number of muts included in analysis
+data=t(log_cell_frac_present_scaled[rowSums((clean.post.prob[,tissues_comb]>prob_threshold_to_include)>0 & (cell_frac_present[,gsub("_comb","",tissues_comb)]>0))>0,])
+sum(rowSums((clean.post.prob[,tissues_comb]>prob_threshold_to_include)>0 & (cell_frac_present[,gsub("_comb","",tissues_comb)]>0))>0) #Print the number of muts included in analysis
 
 #(2) Get the names of the mutations that are not all 0 (i.e. that "differentiate" the tissues)
 diff_muts=colnames(data) #get a vector of mut_refs for these differing mutations
@@ -51,7 +51,7 @@ mut_pairs$uid=apply(mut_pairs[,1:2],1,paste,collapse="-") #create a unique id fo
 
 dim(mut_pairs) #How many are included - gives an idea of how long it will take
 
-new_tree=T
+new_tree=F
 if(new_tree) {
   #Generate data frame of all possible node pairs
   nodes=unique(tree.multi$edge[,2])
@@ -91,7 +91,7 @@ shortest_dist = function(mut_a,mut_b, tree, details) { #the function to look up 
 }
 
 mut_pairs$dist<-NA
-if(exists(ref_dist)){ #If you have already run the script and saved the mut_pairs in the "ref_dist" object (see below), this saves time as it avoids re-calculating the distance between pairs
+if(exists("ref_dist")){ #If you have already run the script and saved the mut_pairs in the "ref_dist" object (see below), this saves time as it avoids re-calculating the distance between pairs
   mut_pairs$dist[mut_pairs$uid %in% rownames(ref_dist)]=ref_dist[mut_pairs$uid[mut_pairs$uid %in% rownames(ref_dist)],"dist"]
 }
 empties=which(is.na(mut_pairs$dist))
@@ -100,7 +100,7 @@ for(i in empties) {
   if(i%%1000==0) {print(i)}
 }
 
-save_dist=T #Set this to TRUE the first time you run the script.  If only making minor adjustments to parameters, set to FALSE.
+save_dist=F #Set this to TRUE the first time you run the script.  If only making minor adjustments to parameters, set to FALSE.
 if(save_dist) {
   ref_dist=mut_pairs[,c("uid","dist")]
   rownames(ref_dist)<-ref_dist$uid
@@ -171,7 +171,9 @@ heatmap(data,
         xlab="Mutation",
         cexRow = 0.8,
         cexCol = 0.8,
-        col=colour.scale)
+        col=colour.scale,
+        keep.dendro = F
+        )
 dev.off()
 
 
