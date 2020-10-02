@@ -13,7 +13,7 @@ library(RColorBrewer)
 comparePhylo_and_plot=function(tree1,tree2,names){
   plot_comp_tree=function(tree,comp,title,col="red",lwd=1,tree_pos){
     tree_name=deparse(substitute(tree))
-    shared_clades=unlist(lapply(strsplit(comp$NODES[,tree_pos],split = "\\("),function(x) gsub("\\)","",x[2])))
+    shared_clades=unlist(lapply(strsplit(as.character(comp$NODES[,tree_pos]),split = "\\("),function(x) gsub("\\)","",x[2])))
     edge_width=sapply(tree$edge[,2],function(node) ifelse(node%in%c(1:length(tree$tip.label),shared_clades),lwd,2*lwd))
     edge_col=sapply(tree$edge[,2],function(node) ifelse(node%in%c(1:length(tree$tip.label),shared_clades),"black",col))
     plot(tree,show.tip.label=F,direction="downwards",edge.color=edge_col,edge.width=edge_width,main=title)

@@ -3,11 +3,22 @@
 #1.  Compares the tree to that built by other tree-building algorithms
 #2.  Reviews internal consistency of the raw tree genotypes by two methods: (1) testing against perfect assumptions of phylogeny mutations, (2) comparing expected genotypes from the consensus phylogeny vs the actual genotype in the input matrix
 
+library(stringr)
+library(ape)
+library(seqinr)
+library(ggtree)
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(plotrix)
+library(phangorn)
+library(RColorBrewer)
+
 #Define function required later in script for comparing phylogenies of different algorithms
 comparePhylo_and_plot=function(tree1,tree2,names){
   plot_comp_tree=function(tree,comp,title,col="red",lwd=1,tree_pos){
     tree_name=deparse(substitute(tree))
-    shared_clades=unlist(lapply(strsplit(comp$NODES[,tree_pos],split = "\\("),function(x) gsub("\\)","",x[2])))
+    shared_clades=unlist(lapply(strsplit(as.character(comp$NODES[,tree_pos]),split = "\\("),function(x) gsub("\\)","",x[2])))
     edge_width=sapply(tree$edge[,2],function(node) ifelse(node%in%c(1:length(tree$tip.label),shared_clades),lwd,2*lwd))
     edge_col=sapply(tree$edge[,2],function(node) ifelse(node%in%c(1:length(tree$tip.label),shared_clades),"black",col))
     plot(tree,show.tip.label=F,direction="downwards",edge.color=edge_col,edge.width=edge_width,main=title)
@@ -26,12 +37,18 @@ get_RF_dist=function(tree1,tree2){
 
 #Set file paths
 my_working_directory="/lustre/scratch119/casm/team154pc/ms56/fetal_HSC/Phylogeny_of_foetal_haematopoiesis"
+#my_working_directory="~/Mounts/Lustre/fetal_HSC/Phylogeny_of_foetal_haematopoiesis/"
 treemut_dir="/lustre/scratch119/casm/team154pc/ms56/fetal_HSC/treemut"
 filtered_muts_file = "Data/18pcw/Filtered_mut_set_annotated_18pcw"
 tree_file_path="Data/18pcw/Tree_18pcw.tree"
-iqtree_path="/Users/ms56/Downloads/iqtree-1.6.12-MacOSX/bin/iqtree"
+#IQTree paths
+iqtree_path="/lustre/scratch119/casm/team154pc/ms56/programs/IQ-TREE/build/iqtree"
 iqtree_input_file_path="Data/18pcw/iqtree_fasta.fa"
 iqtree_output_tree_path=paste0(iqtree_input_file_path,".treefile")
+#SCITE paths
+scite_input_file_path="Data/18pcw/scite_input_18pcw"
+scite_path="/lustre/scratch119/casm/team154pc/ms56/programs/SCITE/scite"
+scite_output_tree_path=paste0(scite_input_file_path,"_ml0.newick")
 
 
 #Set working directly & load-up required functionss
@@ -93,21 +110,40 @@ RF_dist=get_RF_dist(tree,tree_iq); print(RF_dist)
 
 #2. SCITE
 #SCITE has a binary input format where 0 is absent, 1 is present, and 3 is "missing data".
-scite_input_file_path="Data/18pcw/scite_input.txt"
-scite_path="/lustre/scratch119/casm/team154pc/ms56/programs/SCITE/scite"
-scite_output_tree_path=""
+gt=filtered_muts$Genotype_shared_bin
+if(!file.exists(scite_output_tree_path)){
+  #Write file in required format for SCITE
+  gt_rows=apply(gt,1,paste,collapse=" ") #Collapse into strings
+  gt_rows=sapply(gt_rows, function(x) gsub("0.5","3", x)) #Replace the 0.5's with 3's as per the SCITE input
+  writeLines(gt_rows,scite_input_file_path)
+  
+  #Write the SCITE command
+  scite_command=paste0(scite_path," -i ",scite_input_file_path," -n ",nrow(gt)," -m ",ncol(gt)," -r 1 -l 1000000 -fd 0.001 -ad 0.05 -transpose")
+  system(scite_command) #SCITE takes a long time (~12 hrs)
+}
 
-gt_rows=apply(gt,1,paste,collapse=" ") #Collapse into strings
-gt_rows=sapply(gt_rows, function(x) gsub("0.5","3", x)) #Replace the 0.5's with 3's as per the SCITE input
-writeLines(gt_rows,scite_datafile_path)
+tree_scite=read.tree(text=paste0(readLines(scite_output_tree_path),";"))
+tree_scite$edge.length=rep(1,nrow(tree_scite$edge))
+tree_scite$tip.label<-sapply(tree_scite$tip.label,function(x) colnames(gt)[as.numeric(x)]) #Map back the sample names from the numbers
 
-#Write the SCITE command
-scite_command=paste0(scite_path," -i ",scite_datafile_path," -n ",nrow(gt)," -m ",ncol(gt)," -r 1 -l 1000000 -fd 0.001 -ad 0.05")
-system(scite_command)
+#Assign mutations back to the tree
+df = reconstruct_genotype_summary(tree_scite) #Define df (data frame) for treeshape
+res = assign_to_tree(NV[,df$samples], NR[,df$samples], df, error_rate = p.error) #Get res (results!) object
+tree_scite$edge.length <- res$df$df$edge_length #Assign edge lengths from the res object
 
-tree_text=readLines(output_tree_path)
-for(i in 234:100) {tree_text<-gsub(i,colnames(gt)[i],tree_text)} #Replace the numbers with the sample names
-writeLines(tree_text,output_tree_path)
+if(any(tree_scite$edge.length[!tree$edge[,2]%in%1:length(tree_scite$tip.label)]==0)) {
+  tree_scite<-di2multi(tree_scite)
+  df = reconstruct_genotype_summary(tree_scite) #Define df (data frame) for treeshape
+  res = assign_to_tree(NV[,df$samples], NR[,df$samples], df, error_rate = p.error) #Get res (results!) object
+  #Assign edge lengths from the res object
+  tree_scite$edge.length <- res$df$df$edge_length
+}
+
+pdf("~/Documents/Foetal_paper_revisions/MPBoot_vs_SCITE_comparisons_18pcw.pdf",width = 15,height=6)
+comparePhylo_and_plot(tree,tree_scite,names=c("MPBoot phylogeny","SCITE phylogeny"))
+dev.off()
+RF_dist=get_RF_dist(tree,tree_scite); print(RF_dist)
+
 
 #2.MEASURING INTERNAL CONSISTENCY
 
