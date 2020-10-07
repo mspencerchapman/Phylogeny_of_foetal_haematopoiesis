@@ -548,6 +548,7 @@ split_vagrent_output = function(df,split_col,col_IDs = c("Gene","Transcript","RN
     output[,i] = str_split(col, pattern = "\\|", simplify = TRUE)[,i]
   }
   colnames(output) = col_IDs
-  return(as.data.frame(output))
+  output<-as.data.frame(output,stringsAsFactors=F)
+  return(output)
 }
 
