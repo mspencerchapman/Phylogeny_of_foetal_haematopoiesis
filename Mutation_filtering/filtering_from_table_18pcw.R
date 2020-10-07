@@ -8,9 +8,9 @@ library(dplyr)
 library(ggplot2)
 library(data.table)
 
-# my_working_directory="~/R Work/Fetal HSPCs/Phylogeny_of_foetal_haematopoiesis/" 
+# my_working_directory="~/R Work/Fetal HSPCs/Phylogeny_of_foetal_haematopoiesis/"
 # treemut_dir="~/R Work/R_scripts/treemut/"
-
+# 
 my_working_directory="/lustre/scratch119/casm/team154pc/ms56/fetal_HSC/Phylogeny_of_foetal_haematopoiesis"
 treemut_dir="/lustre/scratch119/casm/team154pc/ms56/fetal_HSC/treemut"
 
@@ -35,7 +35,7 @@ file_annot="Data/18pcw/Filtered_mut_set_annotated_18pcw"
 sensitivity_analysis_path <- "Data/18pcw/sensitivity_analysis_18pcw"  
 
 #If have previous run analysis - load up files
-previously_run = FALSE
+previously_run = T
 if(previously_run) {
   load(file_annot); tree <- read.tree(tree_file_path)
 } else {
@@ -76,14 +76,14 @@ if(previously_run) {
                                        
                                        #These parameters decide whether a mutation is retained in the "true somatic mutation" set
                                        retain_muts = early_somatic_muts,  #any mutations that should be manually retained, despite not meeting filtering criteria, NULL by default
-                                       germline_pval = -10,  #the log10 p-value cutoff for mutations coming from an expected germline distribution
-                                       rho = 0.1,  #rho cutoff for the beta-binomial filter, a measure of how "over-dispersed" the counts are compared to a binomial distribution
-                                       mean_depth = c(AUTO_low_depth_cutoff,AUTO_high_depth_cutoff, XY_low_depth_cutoff, XY_high_depth_cutoff),   #Numeric vector of length 4 defining mean depth at mutation site cut-offs. This is in the order 1. lower threshold for autosomes, 2. upper threshold for autosomes, 3. lower threshold for XY, 4. upper threshold for XY. This removes mis-mapping/ low reliability loci.
-                                       pval_dp2=NA,  #the p-value cut-off if using the "pval within pos" filter, with positive samples defined as having >= 2 reads
-                                       pval_dp3=0.001,   #the p-value cut-off if using the "pval within pos" filter, with positive samples defined as having >= 3 reads (allows for more index hopping)
+                                       germline_pval = -10,  #the log10 p-value cutoff for likelihood that mutations came from germline distribution. Mutations with value < cutoff are retained.
+                                       rho = 0.1,  #rho cutoff for the beta-binomial filter, a measure of how "over-dispersed" the counts are compared to a binomial distribution. Mutations with value > cutoff are retained.
+                                       mean_depth = c(AUTO_low_depth_cutoff,AUTO_high_depth_cutoff, XY_low_depth_cutoff, XY_high_depth_cutoff),   #Numeric vector of length 4 defining mean depth at mutation site cut-offs. This is in the order (1) lower threshold for autosomes, (2) upper threshold for autosomes, (3) lower threshold for XY, (4) upper threshold for XY. This removes mis-mapping/ low reliability loci.
+                                       pval_dp2=NA,  #the p-value cut-off if using the "pval within pos" filter, with positive samples defined as having >= 2 reads. Mutations with value > cutoff are retained.
+                                       pval_dp3=0.001,   #the p-value cut-off if using the "pval within pos" filter, with positive samples defined as having >= 3 reads (allows for more index hopping). Mutations with value > cutoff are retained.
                                        min_depth = c(6,4), #Numeric vector of length 2 defining minimum depths that at least one positive sample must have for mutation to be retained (AUTO and XY)
-                                       min_pval_for_true_somatic = 0.1,   #Default: 0.1. the minimum p-value that at least one sample must have for the variant:normal read distribution coming from that expected for a true somatic
-                                       min_vaf = NA, #Numeric vector of length 2 defining minimum vaf in at least one sample for mutation to be retained (AUTO and XY)
+                                       min_pval_for_true_somatic = 0.1,   #Default: 0.1. the minimum p-value that at least one sample must have for the variant:normal read distribution coming from that expected for a true somatic. Mutations with value > cutoff are retained.
+                                       min_vaf = NA, #Numeric vector of length 2 defining minimum vaf in at least one sample for mutation to be retained (AUTO and XY). Mutations with value > cutoff are retained.
                                        
                                        #These parameters decide the genotype for each sample for each "true somatic mutation".  These may be less stringent than the initial parameters.
                                        min_variant_reads_SHARED = 2,  #the minimum number of reads for samples to be assigned a positive genotype
@@ -105,7 +105,6 @@ if(previously_run) {
   tree_file = paste0(dna_string_file,".treefile")
   tree <- read.tree(tree_file)
   tree <- drop.tip(tree,"Ancestral")
-  tree <- multi2di(tree)
   tree$edge.length = rep(1, nrow(tree$edge)) #Initially need to assign edge lengths of 1 for the tree_muts package to work
   
   #Assign mutations back to the tree
@@ -116,28 +115,36 @@ if(previously_run) {
   depth = as.matrix(filtered_muts$COMB_mats.tree.build$NR)
   p.error = c(rep(0.01, ncol(filtered_muts$COMB_mats.tree.build$NR)))
   res = assign_to_tree(mtr[,df$samples], depth[,df$samples], df, error_rate = p.error) #Get res (results!) object
-  treefit_pval_cutoff = 1e-3
-  poor_fit = res$summary$pval < treefit_pval_cutoff  #See how many mutations don't have read counts that fit the tree very well
-  sum(poor_fit)
-  
-  #Remove poor_fit muts if they look dodgy
-  filter_poor_fit = "yes"
-  if(filter_poor_fit == "yes") {
-    filtered_muts$COMB_mats.tree.build <- list_subset(filtered_muts$COMB_mats.tree.build,select_vector = !poor_fit)
-    mtr = as.matrix(filtered_muts$COMB_mats.tree.build$NV)
-    depth = as.matrix(filtered_muts$COMB_mats.tree.build$NR)
-    p.error = c(rep(0.01, ncol(filtered_muts$COMB_mats.tree.build$NR)))
-    res = assign_to_tree(mtr[,df$samples], depth[,df$samples], df, error_rate = p.error) #Get res (results!) object
-  }
   
   #Assign edge lengths from the res object
   tree$edge.length <- res$df$df$edge_length
+  filtered_muts$COMB_mats.tree.build$mat$node <- tree$edge[res$summary$edge_ml,2] #Add node information to the filtered_muts object
+  filtered_muts$COMB_mats.tree.build$mat$pval <- res$summary$pval #Add pval information to the filtered_muts object
   
-  #Add node & pval information to the filtered_muts object
-  filtered_muts$COMB_mats.tree.build$mat$node <- tree$edge[res$summary$edge_ml,2]
-  filtered_muts$COMB_mats.tree.build$mat$pval <- res$summary$pval
+  treefit_pval_cutoff = 1e-3
+  poor_fit = res$summary$pval < treefit_pval_cutoff; print(sum(poor_fit))  #See how many mutations don't have read counts that fit the tree very well
   
-  #Save the tree file
+  #Remove poor_fit muts if they clearly do not fit the phylogeny
+  filter_poor_fit = "yes"
+  if(filter_poor_fit == "yes") {
+    filtered_muts$COMB_mats.tree.build <- list_subset(filtered_muts$COMB_mats.tree.build,select_vector = !poor_fit)
+    tree$edge.length<-sapply(tree$edge[,2], function(node) sum(filtered_muts$COMB_mats.tree.build$mat$node==node))
+  }
+  
+  #Now make multi-furcating version of the tree - used for most downstream analysis
+  tree<-di2multi(tree)
+  #Assign mutations back to the tree
+  df = reconstruct_genotype_summary(tree) #Define df (data frame) for multi treeshape
+  mtr = as.matrix(filtered_muts$COMB_mats.tree.build$NV); depth = as.matrix(filtered_muts$COMB_mats.tree.build$NR)
+  p.error = c(rep(0.01, ncol(filtered_muts$COMB_mats.tree.build$NR)))
+  res = assign_to_tree(mtr[,df$samples], depth[,df$samples], df, error_rate = p.error) #Get res (results!) object
+  
+  #Assign edge lengths from the res object
+  tree$edge.length <- res$df$df$edge_length
+  filtered_muts$COMB_mats.tree.build$mat$node <- tree$edge[res$summary$edge_ml,2] #Add node information to the filtered_muts object
+  filtered_muts$COMB_mats.tree.build$mat$pval <- res$summary$pval #Add pval information to the filtered_muts object
+  
+  #Save the multi-furcating tree file
   write.tree(tree, file = tree_file_path)
   
   #ANNOTATING THE MUTATIONS
@@ -167,10 +174,13 @@ if(previously_run) {
   annot_info$VD <- gsub(x=annot_info$VD, pattern = "VD=", replacement = "")
   
   filtered_muts$COMB_mats.tree.build$mat <- cbind(filtered_muts$COMB_mats.tree.build$mat,split_vagrent_output(df = annot_info,split_col = "VD"))
+  filtered_muts$COMB_mats.tree.build$mat$variant_ID <- paste(filtered_muts$COMB_mats.tree.build$mat$Gene, filtered_muts$COMB_mats.tree.build$mat$Protein, sep = " ") #Add a "variant_ID" that includes that gene & protein coding change
+  filtered_muts$COMB_mats.tree.build$mat$Type[filtered_muts$COMB_mats.tree.build$mat$Type == ""] <- "no_annotation" #Label blank field as "no_annotation"
+  
   
   #-----------------------------------------------
   #Save the annotated filtered_muts files (post tree filtering)
-  #save(filtered_muts, file = file_annot)
+  save(filtered_muts, file = file_annot)
 }
 
 #-----------------------------------------------
@@ -233,15 +243,16 @@ tree_INDEL_c = get_corrected_tree(tree = tree, details = filtered_muts$COMB_mats
 #Create a "half-corrected" hybrid tree: Corrected SNVs, uncorrected INDELs (as difficult to do accurately & doesn't make a big difference)
 tree_hybrid=tree_SNV_c #Start from corrected SNV tree
 tree_hybrid$edge.length <- tree_SNV_c$edge.length + tree_INDEL$edge.length #Combine the edge lengths of the corrected SNV tree & the uncorrected indel tree
-tree_hybrid.multi<-di2multi(tree_hybrid)
 pdf("Figures/18pcw/Haematopoietic_phylogeny_18pcw.pdf",width=15,height=7)
-tree_hybrid.multi=plot_tree(tree_hybrid.multi,cex.label = 0,lwd=1,default_edge_color = "black")
+tree_hybrid=plot_tree(tree_hybrid,cex.label = 0,lwd=1,default_edge_color = "black")
 dev.off()
 
 
 #------------------------------------------------------------------
 #PLOT THE CELL MIGRATION TREE TO SHOW LACK OF CLUSTERING BY LOCATION
 #------------------------------------------------------------------
+details=filtered_muts$COMB_mats.tree.build$mat
+
 #Label tree by the tissue that they were isolated from (liver, femur 1 or femur 2)
 tree_SNV_c$tip.label=gsub("_hum","",tree_SNV_c$tip.label)
 tree_SNV_c$tip.label=as.character(sapply(tree_SNV_c$tip.label, function(sample) smry_seq_18pcw$Tissue[which(smry_seq_18pcw$Donor_ID==sample)]))
@@ -265,28 +276,8 @@ dev.off()
 #---------------------------------------------------------------------------------------------------
 #PLOT WITH ANNOTATION OF MUTATIONS CAUSING CODING CHANGES IN SHARED BRANCHES (the most robust calls)
 #---------------------------------------------------------------------------------------------------
-
-details.multi<-filtered_muts$COMB_mats.tree.build$mat
-NV <- filtered_muts$COMB_mats.tree.build$NV
-NR <- filtered_muts$COMB_mats.tree.build$NR
-
-details.multi[,1:13]<-apply(details.multi[,1:13],2,as.character)
-details.multi$variant_ID <- paste(details.multi$Gene, details.multi$Protein, sep = " ") #Add a "variant_ID" that includes that gene & protein coding change
-details.multi$Type[details.multi$Type == ""] <- "no_annotation" #Label blank field as "no_annotation"
-
-##Use treemut to reassign mutations to the multi-furcating tree
-tree_hybrid.multi$tip.label<-gsub("_hum","",tree_hybrid.multi$tip.label)
-df = reconstruct_genotype_summary(tree_hybrid.multi) #Define df (data frame) for treeshape
-
-#Get matrices in order, and run the main assignment functions
-mtr = as.matrix(NV);depth=as.matrix(NR)
-colnames(depth)=colnames(mtr)=gsub("_hum","",colnames(mtr))
-p.error = rep(0.01, ncol(NR))
-res = assign_to_tree(mtr[,df$samples], depth[,df$samples], df, error_rate = p.error) #Get res (results!) object
-details.multi$node<- tree_hybrid.multi$edge[res$summary$edge_ml,2]
-
 #Define the coding changes in shared branches
-details.multi$shared_coding_change <- ifelse(!details.multi$node %in% 1:length(tree$tip.label) & details.multi$Type %in% c("protein_coding:exon:CDS:substitution:codon_variant:non_synonymous_codon",
+details$shared_coding_change <- ifelse(!details$node %in% 1:length(tree$tip.label) & details$Type %in% c("protein_coding:exon:CDS:substitution:codon_variant:non_synonymous_codon",
                                                                                                                "protein_coding:exon:CDS:insertion:frameshift_variant",
                                                                                                                "protein_coding:exon:CDS:deletion:frameshift_variant",
                                                                                                                "protein_coding:exon:CDS:substitution:codon_variant:stop_gained",
@@ -295,9 +286,9 @@ details.multi$shared_coding_change <- ifelse(!details.multi$node %in% 1:length(t
                                              "Shared coding change", "no")
 
 pdf("Figures/18pcw/Haematopoietic_phylogeny_shared_CDS_muts_18pcw.pdf",width=15,height=7)
-tree_hybrid.multi=plot_tree(tree_hybrid.multi, cex.label = 0)
-plot_tree_labels(tree_hybrid.multi,
-                 details = details.multi,
+tree_hybrid=plot_tree(tree_hybrid, cex.label = 0)
+plot_tree_labels(tree_hybrid,
+                 details = details,
                  type = "line",
                  query.field = "shared_coding_change",
                  data.frame(value="Shared coding change",col="red",pch = 17,stringsAsFactors = FALSE),
