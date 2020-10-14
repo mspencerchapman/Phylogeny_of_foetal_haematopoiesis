@@ -9,6 +9,35 @@ library(plotrix)
 library(phangorn)
 library(RColorBrewer)
 
+#Functions required in script
+aggregate_cols=function(NV,NR,lcm_summary_table,aggregate_feature,exclude_class=NULL) {
+  classes=names(table(lcm_summary_table[,aggregate_feature]))
+  if(!is.null(exclude_class)){classes<-classes[!classes%in%exclude_class]}
+  NV_list=lapply(classes, function(class) {
+    return(apply(NV,1,function(x) {sum(x[colnames(NV) %in% lcm_summary_table$Sample_ID[lcm_summary_table[,aggregate_feature] == class]])}))
+  })
+  NR_list=lapply(classes, function(class) {
+    return(apply(NR,1,function(x) {sum(x[colnames(NR) %in% lcm_summary_table$Sample_ID[lcm_summary_table[,aggregate_feature] == class]])}))
+  })
+  NV_agg=Reduce(cbind,NV_list)
+  NR_agg=Reduce(cbind,NR_list)
+  dimnames(NV_agg)=dimnames(NR_agg)=list(rownames(NV),classes)
+  return(list(NR=NR_agg,NV=NV_agg))
+}
+
+combine_post_prob=function(post.prob,lcm_summary_table,aggregate_feature,exclude_class=NULL) {
+  classes=names(table(lcm_summary_table[,aggregate_feature]))
+  if(!is.null(exclude_class)){classes<-classes[!classes%in%exclude_class]}
+  comb_list=lapply(classes,function(class) {
+    sample_cols=c(lcm_summary_table$Sample_ID[lcm_summary_table[,aggregate_feature]==class])
+    return(apply(post.prob[,sample_cols,drop=FALSE], MARGIN=1,FUN=function(x) {1-prod(1-x)}))
+  })
+  post.prob_comb=Reduce(cbind,comb_list)
+  rownames(post.prob_comb)<-rownames(post.prob)
+  colnames(post.prob_comb)<-paste0(classes,"_comb")
+  return(post.prob_comb)
+}
+
 my_working_directory="~/R_work/Phylogeny_of_foetal_haematopoiesis/"
 treemut_dir="~/R_work/treemut" #Path for the cloned "treemut" directory
 setwd(my_working_directory)
@@ -27,40 +56,23 @@ sapply(R_function_files,source)
 setwd(treemut_dir); source("treemut.R"); setwd(my_working_directory)
 
 #--------------------------------------------------------------------------------------------------
-##IMPORTING THE CGPVAF TABLES (snps and indels), AND AGGREGATING COUNTS ACROSS TISSUES/ GERM LAYERS
+##IMPORTING THE CGPVAF TABLES (SNVs and INDELs), AND AGGREGATING COUNTS ACROSS TISSUES/ GERM LAYERS
 #--------------------------------------------------------------------------------------------------
 #Import the cgpvaf files and combine the LCM and single-cell colony (SCC) matrices into single matrix
 LCM_mats<-import_cgpvaf_SNV_and_INDEL(SNV_output_file=cgpvaf_LCM_SNV_file,INDEL_output_file=cgpvaf_LCM_INDEL_file)
 SCC_mats<-import_cgpvaf_SNV_and_INDEL(SNV_output_file=cgpvaf_colonies_SNV_file,INDEL_output_file=cgpvaf_colonies_INDEL_file)
-NV = cbind(LCM_mats$NV,SCC_mats$NV); NR = cbind(LCM_mats$NR,SCC_mats$NR)
 
-#Import the LCM sample info
+#Import the LCM summary table
 lcm_smry = read.csv(lcm_smry_path,stringsAsFactors = FALSE)
 
-#Add aggregate columns for each tissue type (as defined in the lcm_smry table)
-tissues = names(table(lcm_smry$Tissue))
-for(i in tissues) {
-  NV[,i] <- apply(NV,1,function(x) {sum(x[colnames(NV) %in% lcm_smry$Sample_ID[lcm_smry$Tissue == i]])})
-  NR[,i] <- apply(NR,1,function(x) {sum(x[colnames(NR) %in% lcm_smry$Sample_ID[lcm_smry$Tissue == i]])})
-}
+#Create aggregated read counts for each tissue/ germ-layer/ pre- or post-gastrulation category (as defined in the lcm_smry table)
+Tissue_agg=aggregate_cols(LCM_mats$NV,LCM_mats$NR,lcm_summary_table = lcm_smry,aggregate_feature = "Tissue")
+Germ_layer_agg=aggregate_cols(LCM_mats$NV,LCM_mats$NR,lcm_summary_table = lcm_smry,aggregate_feature = "Germ_layer")
+Gastrulation_agg=aggregate_cols(LCM_mats$NV,LCM_mats$NR,lcm_summary_table = lcm_smry,aggregate_feature = "Gastrulation",exclude_class = "UNKNOWN")
 
-#Add aggregate columns for germ layers (as defined in the lcm_smry table)
-germ_layers=names(table(lcm_smry$Germ_layer))
-for(i in germ_layers) {
-  NV[,i] <- apply(NV,1,function(x) {sum(x[colnames(NV) %in% lcm_smry$Sample_ID[lcm_smry$Germ_layer == i]])})
-  NR[,i] <- apply(NR,1,function(x) {sum(x[colnames(NR) %in% lcm_smry$Sample_ID[lcm_smry$Germ_layer == i]])})
-}
-
-#Add aggregate columns for mesoderm vs non-mesoderm (as defined in the lcm_smry table)
-same_germ_layer=names(table(lcm_smry$Gastrulation))
-for(i in same_germ_layer[-3]) { #Don't do for the "unknown" again
-  NV[,i] <- apply(NV,1,function(x) {sum(x[colnames(NV) %in% lcm_smry$Sample_ID[lcm_smry$Gastrulation == i]])})
-  NR[,i] <- apply(NR,1,function(x) {sum(x[colnames(NR) %in% lcm_smry$Sample_ID[lcm_smry$Gastrulation == i]])})
-}
-
-#Add a column to aggregate all LCM samples
-NV[,"ALL_LCM"] <- apply(NV,1,function(x) {sum(x[colnames(NV) %in% lcm_smry$Sample_ID])})
-NR[,"ALL_LCM"] <- apply(NR,1,function(x) {sum(x[colnames(NR) %in% lcm_smry$Sample_ID])})
+#Combine the individual LCM sample counts with the aggregated counts
+NV<-cbind(LCM_mats$NV,Tissue_agg$NV,Germ_layer_agg$NV,Gastrulation_agg$NV)
+NR<-cbind(LCM_mats$NR,Tissue_agg$NR,Germ_layer_agg$NR,Gastrulation_agg$NR)
 
 #Import the details matrix and tree (needed to interpret the targeted sequencing data)
 load(file_annot); tree.8wk <- read.tree(tree_file_path); tree.8wk$tip.label=gsub("_hum","",tree.8wk$tip.label)
@@ -79,29 +91,22 @@ NR=NR[details_targ$mut_ref,]
 #--------------------------------------------------------------------------------------------------
 ##ESTIMATE THE POSTERIOR PROBABILITY OF EACH MUTATION BEING PRESENT IN A GIVEN TISSUE##
 #--------------------------------------------------------------------------------------------------
-node.assign.8wk <- details_targ
-
-depth.8wk=NR[details_targ$mut_ref,]; mtr.8wk=NV[details_targ$mut_ref,]  #The matrices used for calling mutations (everything)
 depth.cols=SCC_mats$NR[details_targ$mut_ref,]; mtr.cols=SCC_mats$NV[details_targ$mut_ref,] #The matrices for calculating background error (single cell colonies)
 
 #Only use single cell colonies that are included in the tree
 depth.cols <- depth.cols[,names(depth.cols) %in% tree.8wk$tip.label]
 mtr.cols <- mtr.cols[,names(mtr.cols) %in% tree.8wk$tip.label]
 
-# Remove false positive mutation calls in bait set
-depth.8wk <- depth.8wk[row.names(depth.8wk) %in% node.assign.8wk$mut_ref,]
-mtr.8wk <- mtr.8wk[row.names(mtr.8wk) %in% node.assign.8wk$mut_ref,]
-
 # Check matrix structure is identical
-print(all(row.names(depth.8wk) == row.names(mtr.8wk)))
-print(all(names(depth.8wk) == names(mtr.8wk)))
-print(all(row.names(depth.8wk) == node.assign.8wk$mut_ref))
-print(all(row.names(depth.cols) == row.names(depth.8wk)))
-print(all(row.names(mtr.cols) == row.names(depth.8wk)))
+print(all(row.names(NR) == row.names(NV)))
+print(all(names(NR) == names(NV)))
+print(all(row.names(NR) == details_targ$mut_ref))
+print(all(row.names(depth.cols) == row.names(NR)))
+print(all(row.names(mtr.cols) == row.names(NR)))
 
 # Set parameters
-alpha_mut <- rep(1.5, nrow(depth.8wk))
-beta_mut <- rep(10, nrow(depth.8wk))
+alpha_mut <- rep(1.5, nrow(NR))
+beta_mut <- rep(10, nrow(NR))
 min_theta <- 0.001
 max_theta <- 0.1
 
@@ -109,13 +114,13 @@ max_theta <- 0.1
 # Uses empirically weighted method of moments, as described by Keinman, JASA 1973
 # Loop through each mutation -> find colonies not carrying that variant -> estimate alpha / beta from those colonies
 
-alpha_error <- beta_error <- rep(0,nrow(depth.8wk))
-descendants_per_mut <- Descendants(x = tree.8wk, node = node.assign.8wk$node, type = "tips")
-for (i in 1:nrow(depth.8wk)) {
+alpha_error <- beta_error <- rep(0,nrow(NR))
+descendants_per_mut <- Descendants(x = tree.8wk, node = details_targ$node, type = "tips")
+for (i in 1:nrow(NR)) {
   desc_tips <- tree.8wk$tip.label[descendants_per_mut[[i]]]
   
   # Deal with case of lesion segregation!
-  if (row.names(depth.8wk)[i] == "22-37053571-G-A") {
+  if (row.names(NR)[i] == "22-37053571-G-A") {
     desc_tips <- c(desc_tips, tree.8wk$tip.label[Descendants(tree.8wk, node=527, type="tips")[[1]]])
   }
   
@@ -142,102 +147,54 @@ for (i in 1:nrow(depth.8wk)) {
 }
 
 # Define prior prob as fraction of colonies in the haematopoietic tree with the mutation
-prior_mut <- sapply(1:nrow(depth.8wk), function(i) {length(Descendants(tree.8wk, node.assign.8wk$node[i], "tips")[[1]]) / length(tree.8wk$tip.label)})
+prior_mut <- sapply(1:nrow(NR), function(i) {length(Descendants(tree.8wk, details_targ$node[i], "tips")[[1]]) / length(tree.8wk$tip.label)})
 
 # Calculate posterior probabilities
-post.prob <- cbind(sapply(1:ncol(depth.8wk), function(i) {bbprob.calculator(x_i = mtr.8wk[,i], n_i = depth.8wk[,i], alpha_error = alpha_error, beta_error = beta_error, alpha_mut = alpha_mut, beta_mut = beta_mut, prior_mut = prior_mut)}))
-colnames(post.prob) <- names(depth.8wk); row.names(post.prob) <- row.names(depth.8wk)
-
+post.prob <- cbind(sapply(1:ncol(NR), function(i) {bbprob.calculator(x_i = NV[,i], n_i = NR[,i], alpha_error = alpha_error, beta_error = beta_error, alpha_mut = alpha_mut, beta_mut = beta_mut, prior_mut = prior_mut)}))
+colnames(post.prob) <- names(NR); row.names(post.prob) <- row.names(NR)
 post.prob[post.prob<0.05]<-0
 
 #########################################################################
 #In a given tissue, individual cuts may be clonal/ oligoclonal, and therefore in particular lineages may be
-#represented at a higher vaf than i the aggregated read counts for the tissue.  Therefore, reassessing aggregated
+#represented at a higher vaf than the aggregated read counts for the tissue.  Therefore, reassessing aggregated
 #counts may dilute the ability to call mutations. Therefore call mutations based on 1-prod(1-x) where x is the individual
 #sample probability i.e. 1 - the probability that the mutation is absent in all individual samples.
 
-#Get the "tissue_comb" for combined probabilities across individual tissues. Add these on to the post.prob matrix as new columns.
-for(tissue in tissues) {
-  sample_cols=c(lcm_smry$Sample_ID[lcm_smry$Tissue==tissue])
-  tissue_comb = apply(post.prob[,sample_cols,drop=FALSE], MARGIN=1,FUN=function(x) {1-prod(1-x)})
-  post.prob<-cbind(post.prob,matrix(tissue_comb,ncol=1,dimnames=list(rownames(post.prob),paste0(tissue,"_comb"))))
-}
-
-#Get the "tissue_comb" across individual germlayers.  Add these on to the post.prob matrix as new columns.
-for(germ_layer in germ_layers) {
-  sample_cols=c(lcm_smry$Sample_ID[lcm_smry$Germ_layer==germ_layer])
-  tissue_comb = apply(post.prob[,sample_cols,drop=FALSE], MARGIN=1,FUN=function(x) {1-prod(1-x)})
-  post.prob<-cbind(post.prob,matrix(tissue_comb,ncol=1,dimnames=list(rownames(post.prob),paste0(germ_layer,"_comb"))))
-}
-
-#Get the "tissue_comb" across mesoderm vs non-mesoderm.  Add these on to the post.prob matrix as new columns.
-for(germ_layer in same_germ_layer[-3]) {
-  sample_cols=c(lcm_smry$Sample_ID[lcm_smry$Gastrulation==germ_layer])
-  tissue_comb = apply(post.prob[,sample_cols,drop=FALSE], MARGIN=1,FUN=function(x) {1-prod(1-x)})
-  post.prob<-cbind(post.prob,matrix(tissue_comb,ncol=1,dimnames=list(rownames(post.prob),paste0(germ_layer,"_comb"))))
-}
+post.prob<-cbind(post.prob,
+                 combine_post_prob(post.prob,lcm_smry,aggregate_feature="Tissue"),
+                 combine_post_prob(post.prob,lcm_smry,aggregate_feature="Germ_layer"),
+                 combine_post_prob(post.prob,lcm_smry,aggregate_feature="Gastrulation",exclude_class = "UNKNOWN"))
 
 #########################################################################
-
-colour.scale <- c("lightgrey", brewer.pal(9, name = "YlOrRd"))
-colour.scale<-colour.scale[c(3:9,9)]
-#colour.scale<-colour.scale[-2]
-
-#CREATE FUNCTION TO ALTER CERTAIN POST.PROBS BASED ON PHYLOGENY i.e. "clean it up" to make sense with the phylogeny
+#CREATE FUNCTION TO ADJUST POST.PROBS BASED ON PHYLOGENY i.e. "clean it up" to make sense with the phylogeny
 #This function does two main alterations:
-#(1) Removes positive posterior probabiities when there are no other mutations called on same branch or ancestral branch
+#(1) Removes positive posterior probabilities when there are no other mutations called on same branch or ancestral branch
 #(2) Boosts the posterior probabilities when there are high posterior probabilities in descendant mutations & other mutations on the same branch & ancestral mutations
-re_run=FALSE
+re_run=F
 if(re_run) {
-  clean.post.prob=apply(post.prob,2,clean_up_post,node.assign.8wk,tree.8wk)
-  #Save it as this takes ages...
+  clean.post.prob=apply(post.prob,2,clean_up_post.multi,details_targ,tree.8wk)
   write.table(clean.post.prob,file = "Data/8pcw/clean.post.prob_8wks.tsv",quote = FALSE,sep = "\t",row.names = TRUE,col.names = TRUE)
-} else {
-  #Re-import it if you have previously run the analysis
-  clean.post.prob=as.matrix(read.delim("Data/8pcw/clean.post.prob_8wks.tsv",sep="\t"))
+} else { 
+  clean.post.prob=as.matrix(read.delim("Data/8pcw/clean.post.prob_8wks.tsv",sep="\t")) #Re-import it if you have previously run the analysis
   colnames(clean.post.prob)<-gsub("\\."," ",colnames(clean.post.prob)) #Saving replaces the spaces with \. - change these back
 }
 
-## CREATE THE MULTIFURCATING TREES ##
-#1. Convert the tree to a multifurcating tree, with the node labels re-assigned within the details matrix
-tree.multi=di2multi(tree_targ)
-tree.multi$coords<-NULL 
-
-#Use treemut to reassign mutations to the multi-furcating tree
-#tree_hybrid.multi$tip.label<-gsub("_hum","",tree_hybrid.multi$tip.label)
-df = reconstruct_genotype_summary(tree.multi) #Define df (data frame) for treeshape
-
-#Get matrices in order, and run the main assignment functions
-mtr = filtered_muts$COMB_mats.tree.build$NV; mtr = as.matrix(mtr)
-depth = filtered_muts$COMB_mats.tree.build$NR; depth = as.matrix(depth)
-colnames(depth)=colnames(mtr)=gsub("_hum","",colnames(mtr))
-p.error = rep(0.01, ncol(filtered_muts$COMB_mats.tree.build$NR))
-res = assign_to_tree(mtr[,df$samples], depth[,df$samples], df, error_rate = p.error) #Get res (results!) object
-
-#Add multi-furcating tree node number information to the filtered_muts object
-details_targ$node <- tree.multi$edge[res$summary$edge_ml,2]
-
-#2.Copy the multifurcating tree to make a version where branch lengths will be proportional to the 
-#estimated number of cell divisions occuring by this point
-tree.multi.gen=tree.multi
-
-#Now set branch lengths according to generations according to the formula log2(number of daughters)
-#for a dichotomous branch, this formula sets the edge length as 1
-for(node in unique(tree.multi.gen$edge[,1])) {
-  multi=sum(tree.multi.gen$edge[,1]==node)
-  tree.multi.gen$edge.length[tree.multi.gen$edge[,1]==node] <- log2(multi)
+#########################################################################
+## CREATE THE GENERATION TREES##
+#Create versions of tree where branch lengths are proportional to the estimated number of cell divisions by this point
+tree.gen=tree_targ
+for(node in unique(tree.gen$edge[,1])) {
+  multi=sum(tree.gen$edge[,1]==node)
+  tree.gen$edge.length[tree.gen$edge[,1]==node] <- log2(multi) #set branch lengths according to generations according to the formula log2(number of daughters)
 }
-
-#Rescale node 280 - is an exception as we have good evidence that this is two generations from the trophectoderm targeted data
-tree.multi.gen$edge.length[tree.multi.gen$edge[,2]==280] <-2
-
-#Create a "squashed" tree for displaying this way
-tree.multi.squash=squash_tree(tree.multi,cut_off=22)
+tree.gen$edge.length[tree.gen$edge[,2]==280] <-2 #Rescale node 280 - we have good evidence that this is two generations from the trophoblast targeted data
+tree.squash=squash_tree(tree_targ,cut_off=22) #Create a "squashed" tree for displaying this way
 
 #Extend the branches of the generations tree for clarity, and cut at 10 generations
-tree.multi.gen.ultra=force.ultrametric(tree.multi.gen,method="extend")
-tree.multi.gen.ultra.squash=squash_tree(tree.multi.gen.ultra,cut_off=10)
+tree.gen.ultra=force.ultrametric(tree.gen,method="extend")
+tree.gen.ultra.squash=squash_tree(tree.gen.ultra,cut_off=10)
 
+#########################################################################
 ####NOW READY TO PLOT THE TREES IN A VARIETY OF WAYS ####
 
 #For this function to run, need several objects in the environment:
@@ -248,22 +205,22 @@ tree.multi.gen.ultra.squash=squash_tree(tree.multi.gen.ultra,cut_off=10)
 #(6) A colour.scale object containing the colour scale for the trees (and the scale bar)
 
 #Create vectors of the two "comb" data types
-tissues_comb=paste0(tissues,"_comb")
-germ_layers_comb=paste0(germ_layers,"_comb")
+tissues_comb=paste0(names(table(lcm_smry$Tissue)),"_comb")
+germ_layers_comb=paste0(names(table(lcm_smry$Germ_layer)),"_comb")
 
 #Do some plots using the "generate_targ_seq_plots" function
 pdf("Figures/8pcw/Gut_samples_cellfrac.8wks.pdf",width=13,height=7)
 colour.scale <- c("lightgrey", brewer.pal(9, name = "YlOrRd")); colour.scale<-colour.scale[c(3:9,9)]
 samples=lcm_smry$Sample_ID[lcm_smry$Tissue=="GUT"]
 generate_targ_seq_plots(samples,
-                        tree=tree.multi.squash,
+                        tree=tree.gen,
                         details_targ=details_targ,
                         matrices=list(NV=NV[details_targ$mut_ref,],NR=NR[details_targ$mut_ref,]),
                         post_prob_type="clean", #other option is "raw"
                         info_type="log_cell_frac", #options are "post.prob", "cell_frac", "log_cell_frac"
                         prob_threshold_to_include=0.5,
-                        plot_cell_frac=FALSE,
-                        plot_donut=FALSE, #plot a donut for positive nodes
+                        plot_cell_frac=F,
+                        plot_donut=F, #plot a donut for positive nodes
                         donut_info="cell_frac", #options are "cell_frac" or "lineages_lost"
                         CI=0.95,
                         radius=4,
@@ -275,7 +232,7 @@ pdf("Figures/8pcw/Aggregated_tissues_cellfrac.8wks.pdf",width=13,height=7)
 colour.scale <- c("lightgrey", brewer.pal(9, name = "YlOrRd")); colour.scale<-colour.scale[c(3:9,9)]
 samples=tissues_comb
 generate_targ_seq_plots(samples,
-                        tree=tree.multi.squash,
+                        tree=tree.squash,
                         details_targ=details_targ,
                         matrices=list(NV=NV[details_targ$mut_ref,],NR=NR[details_targ$mut_ref,]),
                         post_prob_type="clean", #other option is "raw"
@@ -294,7 +251,7 @@ dev.off()
 pdf("Figures/8pcw/Germ_layers_cellfracpie.8wks.pdf",width=13,height=7)
 samples=germ_layers_comb
 generate_targ_seq_plots(samples,
-                        tree=tree.multi.gen.ultra.squash,
+                        tree=tree.gen.ultra.squash,
                         details_targ=details_targ,
                         matrices=list(NV=NV[details_targ$mut_ref,],NR=NR[details_targ$mut_ref,]),
                         post_prob_type="clean", #other option is "raw"
@@ -340,8 +297,8 @@ mutation_timing = sapply(1:nrow(clean.post.prob), function(i) {
 details_targ$mutation_timing=mutation_timing
 
 pdf("Figures/8pcw/mutation_timing_tree.pdf",width=10,height=6)
-tree.multi.squash=plot_tree(tree.multi.squash, cex.label = 0)
-add_annotation(tree=tree.multi.squash,
+tree.squash=plot_tree(tree.squash, cex.label = 0)
+add_annotation(tree=tree.squash,
                details=details_targ,
                list(mtr=mtr,dep=dep),
                annot_function=function(tree,details,matrices,node) {
@@ -562,15 +519,15 @@ ggsave(p2,file="Figures/8pcw/Lineages_captured_through_cell_gens_8pcw.pdf",width
 ##CALCULATE THE PROPORTION OF BLOOD ANTECEDENTS FROM DIFFERENT GENERATIONS FROM THE ZYGOTE WITH DETECTABLE PROGENY IN NON-HAEMATOPOIETIC TISSUES
 #------------------------------------------------------------------------------------------------------------------------------------------------
 
-#(1) Use the tree.multi.gen.ultra tree previously generated
-nodeheights <- nodeHeights(tree.multi.gen.ultra) #get node heights of each edge
+#(1) Use the tree.gen.ultra tree previously generated
+nodeheights <- nodeHeights(tree.gen.ultra) #get node heights of each edge
 generation_cut_offs = seq(from=0,to=7.8,by=0.2) #decide what "generations" to assess. Beyond 8 becomes a bit meaningless as true generations is impossible to know.
 
 
 #(2) The main function to capture the statistic
 captured_by_gen=lapply(generation_cut_offs, function (x) {
   #Define the branches to include at this cut off
-  branches_to_include=tree.multi.gen.ultra$edge[which(nodeheights[,1] <= x & !nodeheights[,2] <= x),2] #get the branches crossing each cut_off
+  branches_to_include=tree.gen.ultra$edge[which(nodeheights[,1] <= x & !nodeheights[,2] <= x),2] #get the branches crossing each cut_off
   #Capture the total number of branches - the denominator
   total_lineages=length(branches_to_include)
   #Find whether any of the mutations in these branches are likely present in each tissue (as previous)

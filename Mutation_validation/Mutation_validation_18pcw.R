@@ -9,8 +9,8 @@ library(plotrix)
 library(phangorn)
 library(RColorBrewer)
 
-my_working_directory="~/R Work/Fetal HSPCs/Phylogeny_of_foetal_haematopoiesis/"
-treemut_dir="~/R Work/R_scripts/treemut/"
+my_working_directory="~/R_work/Phylogeny_of_foetal_haematopoiesis/"
+treemut_dir="~/R_work/treemut/"
 setwd(my_working_directory)
 
 #Define the file paths for the data files
@@ -25,33 +25,6 @@ sapply(R_function_files,source)
 setwd(treemut_dir); source("treemut.R"); setwd(my_working_directory)
 
 ##IMPORTING THE LCM CGPVAF TABLES (snps and indels)
-import_cgpvaf_output=function(cgpvaf_output_file,ref_ID="PDv37is") {
-  mat<-read.delim(cgpvaf_output_file,stringsAsFactors = FALSE)
-  mat<- mat[,!grepl(ref_ID,colnames(mat))] #Remove the reference sample columns
-  NV<- mat[,grepl("_MTR", colnames(mat))] #Split out the variant reads info
-  NR <- mat[,grepl("_DEP",colnames(mat))] #Split out the depth info
-  colnames(NR)=colnames(NV)=gsub(pattern = "_MTR",replacement = "", colnames(NV)) #Rename as sample names
-  mat$mut_ref=paste(mat$Chrom,mat$Pos,mat$Ref,mat$Alt,sep = "-") #Create a mut_ref (mutation reference) column
-  mat<-mat[,c("Chrom","Pos","Ref","Alt","mut_ref")] #Maintain only the key columns in "mat"
-  rownames(NV)=rownames(NR)=mat$mut_ref #Rename the rows of the NV & NR matrices with the mut_ref
-  combined_mats=list(mat,NV,NR); names(combined_mats) <-c("mat","NV","NR") #Combine into a list
-  return(combined_mats)
-}
-
-import_cgpvaf_SNV_and_INDEL = function(SNV_output_file,INDEL_output_file=NULL) {
-  #Import cgpVAF snp output file for the single-cell colonies, create the mut_ref column, and extract the mut and dep cols
-  SNV_mats=import_cgpvaf_output(SNV_output_file)
-  SNV_mats$mat$Mut_type="SNV"
-  if(!is.null(INDEL_output_file)) {
-    INDEL_mats = import_cgpvaf_output(INDEL_output_file)
-    INDEL_mats$mat$Mut_type="INDEL"
-    combined_mats=mapply(SNV_mats,INDEL_mats,FUN = rbind) #Bind the indel and snp matrices together
-    return(combined_mats)
-  } else {
-    return(SNV_mats)
-  }
-}
-
 #Import the cgpvaf files for single-cell colony (SCC) matrices
 SCC_mats<-import_cgpvaf_SNV_and_INDEL(SNV_output_file=cgpvaf_colonies_SNV_file)
 NV = SCC_mats$NV; NR = SCC_mats$NR
@@ -86,19 +59,40 @@ mut_counts_df=Reduce(rbind,mapply(x=validation_results_counts,names=names(valida
 mut_counts_df<-mut_counts_df[!is.na(mut_counts_df$NR),] #Remove the NA's - from mutations that aren't expected in any of the samples that underwent targeted sequencing
 mut_counts_df[,1:2]<-apply(mut_counts_df[,1:2],2,as.numeric)
 
+#Do a quick ggplot2 plot to view the VAFs of the different categories
+mut_counts_df$type=NA
+mut_counts_df$type[mut_counts_df$mut_ref%in%auto_shared_SNVs]<-"auto_shared_SNV"
+mut_counts_df$type[mut_counts_df$mut_ref%in%xy_shared_SNVs]<-"xy_shared_SNV"
+mut_counts_df$type[mut_counts_df$mut_ref%in%auto_private_SNVs]<-"auto_private_SNV"
+mut_counts_df$type[mut_counts_df$mut_ref%in%xy_private_SNVs]<-"xy_private_SNV"
+
+mut_counts_df%>%
+  filter(NR>8)%>%
+  mutate(VAF=NV/NR)%>%
+  ggplot(aes(x=VAF))+
+  facet_grid(rows=vars(type),scales="free_y")+
+  geom_histogram(binwidth=0.04,fill="light grey",col="black")+
+  theme_classic()
+
+#Define a function to plot binomial mixture model output filtering the mutation set in various ways
 #Define a function to plot binomial mixture model output filtering the mutation set in various ways
 binomial_mix_plot=function(mut_counts_df,mut_ref_set,depth_cutoff,nrange=1:4,title=NULL,return_res=FALSE,...) {
   NV=mut_counts_df$NV[mut_counts_df$mut_ref%in%mut_ref_set & mut_counts_df$NR>=depth_cutoff]
   NR=mut_counts_df$NR[mut_counts_df$mut_ref%in%mut_ref_set & mut_counts_df$NR>=depth_cutoff]
   cols=c("blue","red","green","orange","magenta")
-  hist(NV/NR,breaks=seq(0,1,0.05),xlim=c(0,1),col='gray',freq=F,xlab="VAF",main=title,cex.main=0.7,cex.lab=0.7,cex.axis=0.7,...)
-  lines(density(NV/NR),lwd=2,lty='dashed')
+  hist(NV/NR,breaks=seq(0,1,0.05),xlim=c(0,1),col='gray',freq=F,xlab="VAF",main=title,cex.main=0.7,cex.lab=0.7,cex.axis=0.7,family="Arial",...)
   res = binom_mix(NV,NR,nrange=nrange)
+  cols_ordered=vector()
+  cols_ordered[which.min(abs(res$p))]<-"dark green" #peak at 0 should be green
+  cols_ordered[which.min(abs(res$p-0.35))]<-"orange" #subclonal peak at 0.33 should be orange
+  cols_ordered[which.min(abs(res$p-0.25))]<-"red" #sub-clonal peak at 0.25 should be red
+  cols_ordered[which.min(abs(res$p-0.5))]<-"blue" #clonal peak should be blue
+  
   for (i in 1:res$n){
     meancov = round(mean(NR))
     lines(x=(0:meancov)/meancov,
           y=meancov*res$prop[i]*dbinom(0:meancov,meancov,prob=res$p[i]),
-          type="l",col=cols[i],lwd=2)
+          type="l",col=cols_ordered[i],lwd=1.5)
   }
   res$mut_ref=as.character(mut_counts_df$mut_ref[mut_counts_df$mut_ref%in%mut_ref_set & mut_counts_df$NR>=depth_cutoff])
   df=data.frame(binom.peak = res$p[order(res$p)], sample_fraction=res$prop[order(res$p)])
@@ -106,13 +100,19 @@ binomial_mix_plot=function(mut_counts_df,mut_ref_set,depth_cutoff,nrange=1:4,tit
   if(return_res){return(res)}
 }
 
-#Apply to the autosomal mutations, using either 8x or 40x cutoffs, and reviewing private or shared
-pdf("Figures/18pcw/Mutation_validation_binomial_mix_model_18pcw.pdf",width=7,height=7)
-par(mfrow=c(2,2))
-binomial_mix_plot(mut_counts_df=mut_counts_df,mut_ref_set = auto_private_SNVs,depth_cutoff = 8,title = "18pcw: Private autosomal SNVs (depth>=8)") #
-binomial_mix_plot(mut_counts_df=mut_counts_df,mut_ref_set = auto_private_SNVs,depth_cutoff = 40,nrange=4,title = "18pcw: Private autosomal SNVs (depth>=40)")
-binomial_mix_plot(mut_counts_df=mut_counts_df,mut_ref_set = auto_shared_SNVs,depth_cutoff = 8,title = "18pcw: Shared autosomal SNVs (depth>=8)",ylim=c(0,11))
-binomial_mix_plot(mut_counts_df=mut_counts_df,mut_ref_set = auto_shared_SNVs,depth_cutoff = 40, title = "18pcw: Shared autosomal SNVs (depth>=40)",ylim=c(0,10))
+#Apply to the autosomal mutations, reviewing private or shared
+cairo_pdf("Figures/18pcw/Mutation_validation_binomial_mix_model_18pcw.pdf",width=6,height=3)
+par(mfrow=c(1,2))
+binomial_mix_plot(mut_counts_df=mut_counts_df,
+                  mut_ref_set = auto_shared_SNVs,
+                  depth_cutoff = 8,
+                  #title = "18pcw: Shared autosomal SNVs (depth>=8)",
+                  ylim=c(0,11))
+binomial_mix_plot(mut_counts_df=mut_counts_df,
+                  mut_ref_set = auto_private_SNVs,
+                  depth_cutoff = 8,
+                  #title = "18pcw: Private autosomal SNVs (depth>=8)",
+                  ylim=c(0,4)) #
 dev.off()
 
 #For the autosomal private mutations, pull out the subclonal and clonal clusters of mutations for mutational signature analysis
@@ -122,11 +122,29 @@ subclonal_muts=res$mut_ref[res$Which_cluster!=clonal_clust]
 clonal_muts=res$mut_ref[res$Which_cluster==clonal_clust]
 
 #Create and save vcf files of these mutations
-subclonal_vcf_file = create_vcf_files(filtered_muts$COMB_mats.tree.build$mat, select_vector = filtered_muts$COMB_mats.tree.build$mat$mut_ref %in% subclonal_muts)
-clonal_vcf_file = create_vcf_files(filtered_muts$COMB_mats.tree.build$mat, select_vector = filtered_muts$COMB_mats.tree.build$mat$mut_ref %in% clonal_muts)
+write.vcf=function(details,vcf_path,select_vector=NULL,vcf_header_path="~/Documents/vcfHeader.txt") {
+  vcf=create_vcf_files(mat=details,select_vector=select_vector)
+  write.table(vcf,sep = "\t", quote = FALSE,file=paste0(vcf_path,".temp"),row.names = F)
+  system(paste0("cat ",vcf_header_path," ",vcf_path,".temp > ",vcf_path))
+  system(paste0("rm ",vcf_path,".temp"))
+}
 
-write.table(subclonal_vcf_file, sep = "\t", quote = FALSE, file = "Data/18pcw/subclonal_private_muts.vcf", row.names = FALSE)
-write.table(clonal_vcf_file, sep = "\t", quote = FALSE, file = "Data/18pcw/clonal_private_muts.vcf", row.names = FALSE)
+write.vcf(details = filtered_muts$COMB_mats.tree.build$mat,
+          vcf_path = "Data/18pcw/subclonal_private_muts_18pcw.vcf",
+          select_vector = filtered_muts$COMB_mats.tree.build$mat$mut_ref %in% subclonal_muts,
+          vcf_header_path = "Data/vcfHeader.txt")
+write.vcf(details = filtered_muts$COMB_mats.tree.build$mat,
+          vcf_path = "Data/18pcw/clonal_private_muts_18pcw.vcf",
+          select_vector = filtered_muts$COMB_mats.tree.build$mat$mut_ref %in% clonal_muts,
+          vcf_header_path = "Data/vcfHeader.txt")
+write.vcf(details = filtered_muts$COMB_mats.tree.build$mat,
+          vcf_path = "Data/18pcw/Mutations_all_18pcw.vcf",
+          select_vector = NULL,
+          vcf_header_path = "Data/vcfHeader.txt")
+write.vcf(details = filtered_muts$COMB_mats.tree.build$mat,
+          vcf_path = "Data/18pcw/Mutations_shared_18pcw.vcf",
+          select_vector = !filtered_muts$COMB_mats.tree.build$mat$node %in% 1:length(tree$tip.label),
+          vcf_header_path = "Data/vcfHeader.txt")
 
 #-----------------------------------------------------------------------
 #INDIVIDUAL COLONY TARGETED SEQUENCING RESULTS OVERLAID ON THE PHYLOGENY
@@ -147,7 +165,7 @@ samples=colonies_to_validate
 sapply(samples, function(SAMPLE) {
   tree_targ=plot_tree(tree_targ, cex.label = 0)
   text(50,1.5,SAMPLE)
-  text(50,0,paste0("Mean depth is ",round(mean(NR[,SAMPLE]),digits = 2)))
+  text(50,0,paste0("Mean depth is ",round(mean(SCC_mats$NR[,SAMPLE]),digits = 2)))
   add_annotation(tree=tree_targ,
                  details=details_targ_full,
                  list(mtr=SCC_mats$NV,dep=SCC_mats$NR),

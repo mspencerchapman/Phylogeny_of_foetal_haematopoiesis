@@ -9,6 +9,35 @@ library(plotrix)
 library(phangorn)
 library(RColorBrewer)
 
+#Functions required in script
+aggregate_cols=function(NV,NR,lcm_summary_table,aggregate_feature,exclude_class=NULL) {
+  classes=names(table(lcm_summary_table[,aggregate_feature]))
+  if(!is.null(exclude_class)){classes<-classes[!classes%in%exclude_class]}
+  NV_list=lapply(classes, function(class) {
+    return(apply(NV,1,function(x) {sum(x[colnames(NV) %in% lcm_summary_table$Sample_ID[lcm_summary_table[,aggregate_feature] == class]])}))
+  })
+  NR_list=lapply(classes, function(class) {
+    return(apply(NR,1,function(x) {sum(x[colnames(NR) %in% lcm_summary_table$Sample_ID[lcm_summary_table[,aggregate_feature] == class]])}))
+  })
+  NV_agg=Reduce(cbind,NV_list)
+  NR_agg=Reduce(cbind,NR_list)
+  dimnames(NV_agg)=dimnames(NR_agg)=list(rownames(NV),classes)
+  return(list(NR=NR_agg,NV=NV_agg))
+}
+
+combine_post_prob=function(post.prob,lcm_summary_table,aggregate_feature,exclude_class=NULL) {
+  classes=names(table(lcm_summary_table[,aggregate_feature]))
+  if(!is.null(exclude_class)){classes<-classes[!classes%in%exclude_class]}
+  comb_list=lapply(classes,function(class) {
+    sample_cols=c(lcm_summary_table$Sample_ID[lcm_summary_table[,aggregate_feature]==class])
+    return(apply(post.prob[,sample_cols,drop=FALSE], MARGIN=1,FUN=function(x) {1-prod(1-x)}))
+  })
+  post.prob_comb=Reduce(cbind,comb_list)
+  rownames(post.prob_comb)<-rownames(post.prob)
+  colnames(post.prob_comb)<-paste0(classes,"_comb")
+  return(post.prob_comb)
+}
+
 my_working_directory="~/R Work/Fetal HSPCs/Phylogeny_of_foetal_haematopoiesis/"
 treemut_dir="~/R Work/R_scripts/treemut/"
 setwd(my_working_directory)
@@ -25,32 +54,23 @@ R_function_files = list.files("R_functions",pattern=".R",full.names=TRUE)
 sapply(R_function_files,source)
 setwd(treemut_dir); source("treemut.R"); setwd(my_working_directory)
 
-##IMPORTING THE LCM CGPVAF TABLES (snps and indels)
+#--------------------------------------------------------------------------------------------------
+##IMPORTING THE CGPVAF TABLES (SNVs and INDELs), AND AGGREGATING COUNTS ACROSS TISSUES/ GERM LAYERS
+#--------------------------------------------------------------------------------------------------
 #Import the cgpvaf files and combine the LCM and single-cell colony (SCC) matrices into single matrix
-LCM_mats<-import_cgpvaf_SNV_and_INDEL(SNV_output_file=cgpvaf_LCM_SNV_file)
-SCC_mats<-import_cgpvaf_SNV_and_INDEL(SNV_output_file=cgpvaf_colonies_SNV_file)
-NV = cbind(LCM_mats$NV,SCC_mats$NV); NR = cbind(LCM_mats$NR,SCC_mats$NR)
+LCM_mats<-import_cgpvaf_SNV_and_INDEL(SNV_output_file=cgpvaf_LCM_SNV_file,INDEL_output_file=NULL)
+SCC_mats<-import_cgpvaf_SNV_and_INDEL(SNV_output_file=cgpvaf_colonies_SNV_file,INDEL_output_file=NULL)
 
-#Import the LCM sample info
+#Import the LCM summary table
 lcm_smry = read.csv(lcm_smry_path,stringsAsFactors = FALSE)
 
-#Add aggregate columns for each tissue type (as defined in the lcm_smry table)
-tissues = names(table(lcm_smry$Tissue))
-for(i in tissues) {
-  NV[,i] <- apply(NV,1,function(x) {sum(x[colnames(NV) %in% lcm_smry$Sample_ID[lcm_smry$Tissue == i]])})
-  NR[,i] <- apply(NR,1,function(x) {sum(x[colnames(NR) %in% lcm_smry$Sample_ID[lcm_smry$Tissue == i]])})
-}
+#Create aggregated read counts for each tissue/ germ-layer/ pre- or post-gastrulation category (as defined in the lcm_smry table)
+Tissue_agg=aggregate_cols(LCM_mats$NV,LCM_mats$NR,lcm_summary_table = lcm_smry,aggregate_feature = "Tissue")
+Germ_layer_agg=aggregate_cols(LCM_mats$NV,LCM_mats$NR,lcm_summary_table = lcm_smry,aggregate_feature = "Germ_layer")
 
-#Add aggregate columns for germ layers (as defined in the lcm_smry table)
-germ_layers=names(table(lcm_smry$Germ_layer))
-for(i in germ_layers) {
-  NV[,i] <- apply(NV,1,function(x) {sum(x[colnames(NV) %in% lcm_smry$Sample_ID[lcm_smry$Germ_layer == i]])})
-  NR[,i] <- apply(NR,1,function(x) {sum(x[colnames(NR) %in% lcm_smry$Sample_ID[lcm_smry$Germ_layer == i]])})
-}
-
-#Add a column to aggregate all LCM samples
-NV[,"ALL_LCM"] <- apply(NV,1,function(x) {sum(x[colnames(NV) %in% lcm_smry$Sample_ID])})
-NR[,"ALL_LCM"] <- apply(NR,1,function(x) {sum(x[colnames(NR) %in% lcm_smry$Sample_ID])})
+#Combine the individual LCM sample counts with the aggregated counts
+NV<-cbind(LCM_mats$NV,Tissue_agg$NV,Germ_layer_agg$NV)
+NR<-cbind(LCM_mats$NR,Tissue_agg$NR,Germ_layer_agg$NR)
 
 #Import the details matrix and tree (needed to interpret the targeted sequencing data)
 load(file_annot); tree.18wk <- read.tree(tree_file_path); tree.18wk$tip.label=gsub("_hum","",tree.18wk$tip.label)
@@ -66,30 +86,25 @@ details_targ = details[details$targeted_tree=="YES",]
 NV=NV[details_targ$mut_ref,]
 NR=NR[details_targ$mut_ref,]
 
-#######THIS IS THE START OF PETER's BIT#######
-node.assign.18wk <- details_targ
-
-depth.18wk=NR[details_targ$mut_ref,]; mtr.18wk=NV[details_targ$mut_ref,]  #The matrices used for calling mutations (everything)
+#--------------------------------------------------------------------------------------------------
+##ESTIMATE THE POSTERIOR PROBABILITY OF EACH MUTATION BEING PRESENT IN A GIVEN TISSUE##
+#--------------------------------------------------------------------------------------------------
 depth.cols=SCC_mats$NR[details_targ$mut_ref,]; mtr.cols=SCC_mats$NV[details_targ$mut_ref,] #The matrices for calculating background error (single cell colonies)
 
 #Only use single cell colonies that are included in the tree
 depth.cols <- depth.cols[,names(depth.cols) %in% tree.18wk$tip.label]
 mtr.cols <- mtr.cols[,names(mtr.cols) %in% tree.18wk$tip.label]
 
-# Remove false positive mutation calls in bait set
-depth.18wk <- depth.18wk[row.names(depth.18wk) %in% node.assign.18wk$mut_ref,]
-mtr.18wk <- mtr.18wk[row.names(mtr.18wk) %in% node.assign.18wk$mut_ref,]
-
 # Check matrix structure is identical
-print(all(row.names(depth.18wk) == row.names(mtr.18wk)))
-print(all(names(depth.18wk) == names(mtr.18wk)))
-print(all(row.names(depth.18wk) == node.assign.18wk$mut_ref))
-print(all(row.names(depth.cols) == row.names(depth.18wk)))
-print(all(row.names(mtr.cols) == row.names(depth.18wk)))
+print(all(row.names(NR) == row.names(NV)))
+print(all(names(NR) == names(NV)))
+print(all(row.names(NR) == details_targ$mut_ref))
+print(all(row.names(depth.cols) == row.names(NR)))
+print(all(row.names(mtr.cols) == row.names(NR)))
 
 # Set parameters
-alpha_mut <- rep(1.5, nrow(depth.18wk))
-beta_mut <- rep(10, nrow(depth.18wk))
+alpha_mut <- rep(1.5, nrow(NR))
+beta_mut <- rep(10, nrow(NR))
 min_theta <- 0.001
 max_theta <- 0.1
 
@@ -97,9 +112,9 @@ max_theta <- 0.1
 # Uses empirically weighted method of moments, as described by Keinman, JASA 1973
 # Loop through each mutation -> find colonies not carrying that variant -> estimate alpha / beta from those colonies
 
-alpha_error <- beta_error <- rep(0,nrow(depth.18wk))
-descendants_per_mut <- Descendants(x = tree.18wk, node = node.assign.18wk$node, type = "tips")
-for (i in 1:nrow(depth.18wk)) {
+alpha_error <- beta_error <- rep(0,nrow(NR))
+descendants_per_mut <- Descendants(x = tree.18wk, node = details_targ$node, type = "tips")
+for (i in 1:nrow(NR)) {
   desc_tips <- tree.18wk$tip.label[descendants_per_mut[[i]]]
   
   curr.n <- unlist(depth.cols[i, !(names(depth.cols) %in% desc_tips)])
@@ -125,11 +140,12 @@ for (i in 1:nrow(depth.18wk)) {
 }
 
 # Define prior prob as fraction of colonies in the haematopoietic tree with the mutation
-prior_mut <- sapply(1:nrow(depth.18wk), function(i) {length(Descendants(tree.18wk, node.assign.18wk$node[i], "tips")[[1]]) / length(tree.18wk$tip.label)})
+prior_mut <- sapply(1:nrow(NR), function(i) {length(Descendants(tree.18wk, details_targ$node[i], "tips")[[1]]) / length(tree.18wk$tip.label)})
 
 # Calculate posterior probabilities
-post.prob <- cbind(sapply(1:ncol(depth.18wk), function(i) {bbprob.calculator(x_i = mtr.18wk[,i], n_i = depth.18wk[,i], alpha_error = alpha_error, beta_error = beta_error, alpha_mut = alpha_mut, beta_mut = beta_mut, prior_mut = prior_mut)}))
-colnames(post.prob) <- names(depth.18wk); row.names(post.prob) <- row.names(depth.18wk)
+post.prob <- cbind(sapply(1:ncol(NR), function(i) {bbprob.calculator(x_i = NV[,i], n_i = NR[,i], alpha_error = alpha_error, beta_error = beta_error, alpha_mut = alpha_mut, beta_mut = beta_mut, prior_mut = prior_mut)}))
+colnames(post.prob) <- names(NR); row.names(post.prob) <- row.names(NR)
+post.prob[post.prob<0.05]<-0
 
 #########################################################################
 #In a given tissue, individual cuts may be clonal/ oligoclonal, and therefore in particular lineages may be
@@ -137,79 +153,42 @@ colnames(post.prob) <- names(depth.18wk); row.names(post.prob) <- row.names(dept
 #counts may dilute the ability to call mutations. Therefore call mutations based on 1-prod(1-x) where x is the individual
 #sample probability i.e. 1 - the probability that the mutation is absent in all individual samples.
 
-#Get the "tissue_comb" for combined probabilities across individual tissues. Add these on to the post.prob matrix as new columns.
-for(tissue in tissues) {
-  sample_cols=c(lcm_smry$Sample_ID[lcm_smry$Tissue==tissue])
-  tissue_comb = apply(post.prob[,sample_cols,drop=FALSE], MARGIN=1,FUN=function(x) {1-prod(1-x)})
-  post.prob<-cbind(post.prob,matrix(tissue_comb,ncol=1,dimnames=list(rownames(post.prob),paste0(tissue,"_comb"))))
-}
-
-#Get the "tissue_comb" across individual germlayers.  Add these on to the post.prob matrix as new columns.
-for(germ_layer in germ_layers) {
-  sample_cols=c(lcm_smry$Sample_ID[lcm_smry$Germ_layer==germ_layer])
-  tissue_comb = apply(post.prob[,sample_cols,drop=FALSE], MARGIN=1,FUN=function(x) {1-prod(1-x)})
-  post.prob<-cbind(post.prob,matrix(tissue_comb,ncol=1,dimnames=list(rownames(post.prob),paste0(germ_layer,"_comb"))))
-}
+post.prob<-cbind(post.prob,
+                 combine_post_prob(post.prob,lcm_smry,aggregate_feature="Tissue"),
+                 combine_post_prob(post.prob,lcm_smry,aggregate_feature="Germ_layer"))
 
 #########################################################################
-
 #CREATE FUNCTION TO ALTER CERTAIN POST.PROBS BASED ON PHYLOGENY i.e. "clean it up" to make sense with the phylogeny
 #This function does two main alterations:
 #(1) Removes positive posterior probabiities when there are no other mutations called on same branch or ancestral branch
 #(2) Boosts the posterior probabilities when there are high posterior probabilities in descendant mutations & other mutations on the same branch & ancestral mutations
 re_run=FALSE
 if(re_run) {
-  clean.post.prob=apply(post.prob,2,clean_up_post,node.assign.18wk,tree.18wk)
-  #Save it as this takes ages...
+  clean.post.prob=apply(post.prob,2,clean_up_post,details_targ,tree.18wk)
   write.table(clean.post.prob,file = clean.post.prob_path,quote = FALSE,sep = "\t",row.names = TRUE,col.names = TRUE)
 } else {
-  #Re-import it if you have previously run the analysis
   clean.post.prob=as.matrix(read.delim(clean.post.prob_path,sep="\t"))
+  colnames(clean.post.prob)<-gsub("\\."," ",colnames(clean.post.prob)) #Saving replaces the spaces with \. - change these back
 }
 
-## CREATE THE MULTIFURCATING TREES ##
-#1. Convert the tree to a multifurcating tree, with the node labels re-assigned within the details matrix
-tree.multi=di2multi(tree_targ)
-tree.multi$coords<-NULL
-tree.multi.squash=squash_tree(tree.multi,cut_off = 22)
-
-#Use treemut to reassign mutations to the multi-furcating tree
-#tree_hybrid.multi$tip.label<-gsub("_hum","",tree_hybrid.multi$tip.label)
-df = reconstruct_genotype_summary(tree.multi) #Define df (data frame) for treeshape
-
-#Get matrices in order, and run the main assignment functions
-mtr = filtered_muts$COMB_mats.tree.build$NV; mtr = as.matrix(mtr)
-depth = filtered_muts$COMB_mats.tree.build$NR; depth = as.matrix(depth)
-colnames(depth)=colnames(mtr)=gsub("_hum","",colnames(mtr))
-p.error = rep(0.01, ncol(filtered_muts$COMB_mats.tree.build$NR))
-res = assign_to_tree(mtr[,df$samples], depth[,df$samples], df, error_rate = p.error) #Get res (results!) object
-
-#Add multi-furcating tree node number information to the filtered_muts object
-details$node <- tree.multi$edge[res$summary$edge_ml,2]
-details_targ = details[details$targeted_tree=="YES",]
-
-#2.Make a version of the multifurcating tree  where branch lengths are proportional to the 
-#estimated number of cell divisions by this point i.e. a "GENERATIONS" tree
-tree.multi.gen=tree.multi
-
-#Set branch lengths according to generations according to the formula: average generations = log2(number of daughters).
-#For a dichotomous branch, this formula sets the edge length as 1
-#For a 4-way polytomy, average generations -> 2.  In reality, may be a mixture of 1-3 generations.
-for(node in unique(tree.multi.gen$edge[,1])) {
-  multi=sum(tree.multi.gen$edge[,1]==node)
-  tree.multi.gen$edge.length[tree.multi.gen$edge[,1]==node] <- log2(multi)
+#########################################################################
+## CREATE THE GENERATION TREES##
+#Create versions of tree where branch lengths are proportional to the estimated number of cell divisions by this point
+tree.gen=tree_targ
+for(node in unique(tree.gen$edge[,1])) {
+  multi=sum(tree.gen$edge[,1]==node)
+  tree.gen$edge.length[tree.gen$edge[,1]==node] <- log2(multi) #set branch lengths according to generations according to the formula log2(number of daughters)
 }
 
 #Manually change nodes that are >1 division from targeted sequencing (see the "lineage_loss_boot.R" script for calculation)
-tree.multi.gen$edge.length[which(tree.multi.gen$edge[,2]==238)] <-2
-tree.multi.gen$edge.length[which(tree.multi.gen$edge[,2]==359)] <-1+tree.multi.gen$edge.length[which(tree.multi.gen$edge[,2]==359)]
-tree.multi.gen$edge.length[which(tree.multi.gen$edge[,2]==373)] <-1+tree.multi.gen$edge.length[which(tree.multi.gen$edge[,2]==373)]
-tree.multi.gen$edge.length[which(tree.multi.gen$edge[,2]==388)] <-2+tree.multi.gen$edge.length[which(tree.multi.gen$edge[,2]==388)]
-tree.multi.gen$edge.length[which(tree.multi.gen$edge[,2]==231)] <-1+tree.multi.gen$edge.length[which(tree.multi.gen$edge[,2]==231)]
+tree.gen$edge.length[which(tree.gen$edge[,2]==238)] <-2
+tree.gen$edge.length[which(tree.gen$edge[,2]==383)] <-1+tree.gen$edge.length[which(tree.gen$edge[,2]==383)]
+tree.gen$edge.length[which(tree.gen$edge[,2]==368)] <-1+tree.gen$edge.length[which(tree.gen$edge[,2]==368)]
+tree.gen$edge.length[which(tree.gen$edge[,2]==367)] <-2+tree.gen$edge.length[which(tree.gen$edge[,2]==367)]
 
 #Generate two further derivatives - one made ultra-metric, and then "cut" at a given number of generations
-tree.multi.gen.ultra<-phytools::force.ultrametric(tree.multi.gen,method = "extend")
-tree.multi.gen.ultra.squash=squash_tree(tree.multi.gen.ultra,cut_off = 10.9)
+tree.gen.ultra<-force.ultrametric(tree.gen,method = "extend")
+tree.gen.ultra.squash=squash_tree(tree.gen.ultra,cut_off = 10.9)
 
 ####NOW READY TO PLOT THE TREES IN A VARIETY OF WAYS ####
 #For this function to run, need several objects in the environment:
@@ -229,27 +208,27 @@ colour.scale<-colour.scale[c(3:9,9)]
 
 #Do some plots using the "generate_targ_seq_plots" function
 pdf("Figures/18pcw/Ectoderm_samples.18wks.pdf",width=13,height=7)
-samples=lcm_smry$Sample_ID[grep("ECTODERM",lcm_smry$Germ_layer)]
+samples=c("HAIR_FOLLICLE_comb","PERIPHERAL_NERVE_comb","EPIDERMIS_comb","ECTODERM_comb")
 generate_targ_seq_plots(samples,
-                        tree=tree.multi,
+                        tree=tree.gen.ultra.squash,
                         details_targ=details_targ,
                         matrices=list(NV=NV[details_targ$mut_ref,],NR=NR[details_targ$mut_ref,]),
                         post_prob_type="clean", #other option is "raw"
                         info_type="log_vaf", #other option is "post.prob" or "vaf"
                         prob_threshold_to_include=0.5,
                         plot_cell_frac=FALSE,
-                        plot_donut=FALSE, #plot a donut for positive nodes
+                        plot_donut=T, #plot a donut for positive nodes
                         donut_info="cell_frac", #options are "cell_frac" or "lineages_lost"
                         CI=0.95,
                         radius=4,
-                        scale_muts_to_branch = FALSE)
+                        scale_muts_to_branch = T)
 
 dev.off()
 
 pdf("Figures/18pcw/Germ_layers_cellfracpie.18wks.pdf",width=13,height=7)
 samples=germ_layers_comb
 generate_targ_seq_plots(samples,
-                        tree=tree.multi.gen.ultra.squash,
+                        tree=tree.gen.ultra.squash,
                         details_targ=details_targ,
                         matrices=list(NV=NV[details_targ$mut_ref,],NR=NR[details_targ$mut_ref,]),
                         post_prob_type="clean", #other option is "raw"
@@ -433,34 +412,57 @@ ggsave(comb_plot,filename = "Figures/18pcw/Ancestral_mutations_and_lineages.pdf"
 #SUMMING CELL LINEAGES CAPTURED FOR A GIVEN TISSUE ACROSS ENTIRE GENERATIONS
 #---------------------------------------------------------------------------
 
-#Work out branches for each generation
-gen_branches_1=tree.multi$edge[tree.multi$edge[,1]==tree.multi$edge[1,1],2]
-gen_branches_2=tree.multi$edge[tree.multi$edge[,1]%in%gen_branches_1,2]
-gen_branches_3=tree.multi$edge[tree.multi$edge[,1]%in%gen_branches_2,2] #Get daughter branches from all except node 280 (2nd half of 280 is 3rd generation)
-gen_branches_4=tree.multi$edge[tree.multi$edge[,1]%in%c(281,301,389),2]
-
 #Try to pick apart branches that represent multiple generations
-#The ALL_LCM counts give the best power to pick these out in one tissue
+#All combined LCM counts give the best power to pick these out - therefore add this column
+NV<-cbind(NV,matrix(apply(NV[,colnames(NV)%in%lcm_smry$Sample_ID],1,sum),ncol=1,dimnames=list(NULL,"ALL_LCM")))
+NR<-cbind(NR,matrix(apply(NR[,colnames(NR)%in%lcm_smry$Sample_ID],1,sum),ncol=1,dimnames=list(NULL,"ALL_LCM")))
 
-#For node 359, indx 1010 is gen 3, idx 608 & 2286 are gen 4 (manual process here - from mutation vaf distributions)
-#For node 388: 367 is gen 3, 863 & 1374 are gen 4, 274 & 2473 are >gen4 (manual process - from mutation vaf distributions)
-single_dist=sapply(gen_branches_3,function(x) check_branch_distribution("MESODERM",node=x,tree=tree.multi,details=details_targ,matrices=list(NV=NV,NR=NR)))
-names(single_dist)=gen_branches_3
-mixed_dist_branches_3=single_dist[single_dist<0.05 & !is.na(single_dist)]
-not_gen_3=Reduce(c,lapply(names(mixed_dist_branches_3), function(x) find_early_muts_from_branch("ALL_LCM",node=x,tree=tree.multi,details=details_targ,matrices = list(NV=NV,NR=NR),return_late_muts = TRUE)))
-not_gen_3=c(not_gen_3,608,2286)
+#Work out branches/ mutations for each generation
+#Gens 1 & 2 are straight-foward
+gen_branches_1=236 #Don't include the minor branch as this is multiple generations & does not contribute to embryo.
+gen_branches_2=tree_targ$edge[tree_targ$edge[,1]%in%236,2] #237 and 305
 
-#The ALL_LCM counts give the best power to pick these out in one tissue
-single_dist=sapply(gen_branches_4,function(x) check_branch_distribution("ALL_LCM",node=x,tree=tree.multi,details=details_targ,matrices=list(NV=NV,NR=NR)))
-names(single_dist)=gen_branches_4
-mixed_dist_branches_4=single_dist[single_dist<0.05 & !is.na(single_dist)]
-mixed_dist_branches_4 <- mixed_dist_branches_4[!names(mixed_dist_branches_4)%in%names(mixed_dist_branches_3)]
-gen_3_muts=Reduce(c,lapply(names(mixed_dist_branches_3[-2]), function(x) find_early_muts_from_branch("ALL_LCM",node=x,tree=tree.multi,details=details_targ,matrices = list(NV=NV,NR=NR),return_late_muts = FALSE)))
-not_gen_4=Reduce(c,lapply(names(mixed_dist_branches_4), function(x) find_early_muts_from_branch("ALL_LCM",node=x,tree=tree.multi,details=details_targ,matrices = list(NV=NV,NR=NR),return_late_muts = TRUE)))
-not_gen_4=c(gen_3_muts,not_gen_4,1010,274,2473)
+#Gen 3 includes: early muts of 238, 284, early muts on node 305 daughters (306/341/361/367/368/383)
+#STRATEGY IS: find all branches with any mutations contributing & then exclude those that are not that generation
+gen_branches_3=tree_targ$edge[tree_targ$edge[,1]%in%gen_branches_2,2]
+#exclude the late muts from 238
+late_238=find_early_muts_from_branch("ALL_LCM",node=238,tree=tree_targ,details=details_targ,matrices = list(NV=NV,NR=NR),return_late_muts = T)
+#exclude the late muts from the node 305 daughters
+daughters<-Descendants(tree_targ,305,type = "children")
+single_dist=sapply(daughters,function(x) check_branch_distribution("ALL_LCM",node=x,tree=tree_targ,details=details_targ,matrices=list(NV=NV,NR=NR)))
+names(single_dist)<-daughters
+mixed_dist_branches=single_dist[single_dist<0.05 & !is.na(single_dist)] #3 branches (367,368 & 383) have mixed distributions
+#binom_mix function fails for branch 383 - therefore only apply to 367 & 368
+late_367_368=Reduce(c,lapply(c(367,368),function(x) {find_early_muts_from_branch("ALL_LCM",node=x,tree=tree_targ,details=details_targ,matrices = list(NV=NV,NR=NR),return_late_muts = T)}))
+#Manual execution for branch 383
+node_df=check_branch_distribution("ALL_LCM",383,tree_targ,details_targ,list(NV=NV,NR=NR),return_counts = TRUE)
+node_df$vaf=node_df$NV/node_df$NR #highest vaf is idx 1010, therefore exclude 608 & 2287
+late_383=c(608,2287)
+not_gen_3=c(late_238,late_367_368,late_383)
+
+#Gen 4 includes: late muts of 238, early muts from node 284 daughters (285/293/91/298/301/106), node 305 daughters (306/341/361/367/368/383) - later muts only if split
+#STRATEGY IS: exclude early muts of 238,late muts from 284 daughters, early muts from 305 daughters (NB, some muts from 305 daughters will be included in gen 3 & gen 4)
+gen_branches_4=c(238,Descendants(tree_targ,284,"children"),Descendants(tree_targ,305,"children"))
+early_238=find_early_muts_from_branch("ALL_LCM",node=238,tree=tree_targ,details=details_targ,matrices = list(NV=NV,NR=NR),return_late_muts = F)
+#exclude the late muts from the node 284 daughters
+daughters<-Descendants(tree_targ,284,type = "children")
+single_dist=sapply(daughters,function(x) check_branch_distribution("ALL_LCM",node=x,tree=tree_targ,details=details_targ,matrices=list(NV=NV,NR=NR)))
+names(single_dist)<-daughters
+mixed_dist_branches=single_dist[single_dist<0.05 & !is.na(single_dist)] #3 branches (367,368 & 383) have mixed distributions
+late_284_daughters=Reduce(c,lapply(names(mixed_dist_branches),function(x) {find_early_muts_from_branch("ALL_LCM",node=x,tree=tree_targ,details=details_targ,matrices = list(NV=NV,NR=NR),return_late_muts = T)}))
+#exclude early muts from mixed 305 daughters (this is 367,368 and 383)
+node_df=check_branch_distribution("ALL_LCM",367,tree_targ,details_targ,list(NV=NV,NR=NR),return_counts = TRUE)
+not_gen_4_367=c(274,367,2474)
+early_368=find_early_muts_from_branch("ALL_LCM",368,tree_targ,details_targ,list(NV=NV,NR=NR),return_late_muts = F)
+node_df=check_branch_distribution("ALL_LCM",383,tree_targ,details_targ,list(NV=NV,NR=NR),return_counts = TRUE)
+early_383=1010
+not_gen_4=c(early_238,late_284_daughters, not_gen_4_367,early_368,early_383)
 
 #Create summary df to get total generation cell 
 summary_df=data.frame(tissue=NA,generation=NA,median_cell_frac=NA,CI_95_lower=NA,CI_95_upper=NA)
+
+tissues=names(table(lcm_smry$Tissue))
+germ_layers=names(table(lcm_smry$Germ_layer))
 
 for(sample in c(tissues,germ_layers)) {
   #SUM ACROSS THE TREE FOR A GIVEN GENERATION
@@ -468,10 +470,10 @@ for(sample in c(tissues,germ_layers)) {
   counts=list()
   
   #Get counts df for each generation
-  counts$gen_branches_1=Reduce(rbind,lapply(gen_branches_1,get_node_read_counts,sample=sample,tree=tree.multi,details=details_targ,matrices=list(NV=NV,NR=NR)))
-  counts$gen_branches_2=Reduce(rbind,lapply(gen_branches_2,get_node_read_counts,sample=sample,tree=tree.multi,details=details_targ,matrices=list(NV=NV,NR=NR)))
-  counts$gen_branches_3=Reduce(rbind,lapply(gen_branches_3,get_node_read_counts,sample=sample,tree=tree.multi,details=details_targ,matrices=list(NV=NV,NR=NR),exclude_mut_indexes=not_gen_3))
-  counts$gen_branches_4=Reduce(rbind,lapply(gen_branches_4,get_node_read_counts,sample=sample,tree=tree.multi,details=details_targ,matrices=list(NV=NV,NR=NR),exclude_mut_indexes=not_gen_4))
+  counts$gen_branches_1=Reduce(rbind,lapply(gen_branches_1,get_node_read_counts,sample=sample,tree=tree_targ,details=details_targ,matrices=list(NV=NV,NR=NR)))
+  counts$gen_branches_2=Reduce(rbind,lapply(gen_branches_2,get_node_read_counts,sample=sample,tree=tree_targ,details=details_targ,matrices=list(NV=NV,NR=NR)))
+  counts$gen_branches_3=Reduce(rbind,lapply(gen_branches_3,get_node_read_counts,sample=sample,tree=tree_targ,details=details_targ,matrices=list(NV=NV,NR=NR),exclude_mut_indexes=not_gen_3))
+  counts$gen_branches_4=Reduce(rbind,lapply(gen_branches_4,get_node_read_counts,sample=sample,tree=tree_targ,details=details_targ,matrices=list(NV=NV,NR=NR),exclude_mut_indexes=not_gen_4))
   
   #For each tissue have a "Generation 0" entry with a cell fraction of 1
   summary_df=rbind(summary_df,c(sample,0,1,1,1))
@@ -483,7 +485,7 @@ for(sample in c(tissues,germ_layers)) {
     #Bootstrap the counts to get cell fracs for each lineage
     cell_fracs=Reduce(rbind,lapply(1:nrow(gen_df), function(i) {bootstrap_counts(gen_df[i,])}))
     #Sum across bootstraps to get bootstrapped sums
-    total_cell_fracs=colSums(cell_fracs)
+    if(nrow(gen_df)==1) {total_cell_fracs<-cell_fracs} else {total_cell_fracs=colSums(cell_fracs)}
     #Total fractions > 1 don't make sense, therefore cooerce all values >1 to 1
     total_cell_fracs[total_cell_fracs>1]<-1
     #Add
@@ -492,15 +494,16 @@ for(sample in c(tissues,germ_layers)) {
 }
 
 summary_df[,2:5]<-apply(summary_df[,2:5],2,as.numeric)
+str(summary_df)
 
-#Visualization options - several options, but the figure in the paper is just germ layers (Mesoderm vs Ectoderm)
+#Visualization options
+to_visualize=tissues
 to_visualize=germ_layers
-#to_visualize=tissues
-#to_visualize=c("ECTODERM","KIDNEY","HEART")
-#to_visualize=c("HAIR FOLLICLE","EPIDERMIS")
+to_visualize=c("ECTODERM","KIDNEY","HEART")
+to_visualize=c("HAIR FOLLICLE","EPIDERMIS")
 
 #Use ggplot2 to create "lineage loss over generations"
-p1<-summary_df%>%
+summary_df%>%
   filter(tissue%in%to_visualize) %>%
   ggplot(aes(col=tissue,fill=tissue,x=generation,y=median_cell_frac)) +
   geom_point() +
@@ -520,12 +523,12 @@ ggsave(p1,file=filename = "Figures/18pcw//Lineages_captured_through_cell_gens_18
 
 #(1) Take the ultrametric generation time tree
 #"Remove" the minor branch by setting all edge lenths to 0 - this is not represented in any of the targeted sequencing tissues and confuses things
-minor_branch_nodes = c(389,get_all_node_children(389,tree.multi.gen.ultra))
-tree.multi.gen.ultra$edge.length[tree.multi.gen.ultra$edge[,2] %in% minor_branch_nodes] <- 0
-tree.multi.gen.ultra$coords<-NULL #reset the coords
+minor_branch_nodes = c(389,get_all_node_children(389,tree.gen.ultra))
+tree.gen.ultra$edge.length[tree.gen.ultra$edge[,2] %in% minor_branch_nodes] <- 0
+tree.gen.ultra$coords<-NULL #reset the coords
 
 #(2)
-nodeheights <- nodeHeights(tree.multi.gen.ultra) #get node heights of each edge
+nodeheights <- nodeHeights(tree.gen.ultra) #get node heights of each edge
 generation_cut_offs = seq(from=0,to=7.8,by=0.2) #decide what "generations" to assess. Beyond 8 becomes a bit meaningless as true generations is impossible to know.
 
 #(3) The main function to capture the "lineages represented" statistic
@@ -533,7 +536,7 @@ generation_cut_offs = seq(from=0,to=7.8,by=0.2) #decide what "generations" to as
 #Returns the proportion of branches that have any detectable mutations in each tissue at that point
 captured_by_gen=lapply(generation_cut_offs, function (x) {
   #Define the branches to include at this cut off
-  branches_to_include=tree.multi.gen.ultra$edge[which(nodeheights[,1] <= x & !nodeheights[,2] <= x),2] #get the branches crossing each cut_off
+  branches_to_include=tree.gen.ultra$edge[which(nodeheights[,1] <= x & !nodeheights[,2] <= x),2] #get the branches crossing each cut_off
   #Capture the total number of branches - the denominator
   total_lineages=length(branches_to_include)
   #Find whether any of the mutations in these branches are likely present (post.prob>0.5) in each tissue

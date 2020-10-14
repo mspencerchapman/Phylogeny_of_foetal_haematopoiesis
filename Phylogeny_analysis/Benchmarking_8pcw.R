@@ -45,7 +45,7 @@ iqtree_path="/lustre/scratch119/casm/team154pc/ms56/programs/IQ-TREE/build/iqtre
 iqtree_input_file_path="Data/8pcw/iqtree_fasta.fa"
 iqtree_output_tree_path=paste0(iqtree_input_file_path,".treefile")
 #SCITE paths
-scite_input_file_path="Data/8pcw/scite_input_8pcw"
+scite_input_file_path="Data/8pcw/scite_input_8pcw_tk3"
 scite_path="/lustre/scratch119/casm/team154pc/ms56/programs/SCITE/scite"
 scite_output_tree_path=paste0(scite_input_file_path,"_ml0.newick")
 
@@ -58,27 +58,9 @@ setwd(treemut_dir); source("treemut.R"); setwd(my_working_directory)
 #Load the filtered_muts_file & create the mutation matrix in the format required for scite
 load(filtered_muts_file)
 gt<-filtered_muts$Genotype_shared_bin
+NV<-as.matrix(filtered_muts$COMB_mats.tree.build$NV);NR<-as.matrix(filtered_muts$COMB_mats.tree.build$NR)
 details<-filtered_muts$COMB_mats.tree.build$mat
-tree<-di2multi(read.tree(tree_file_path))
-
-#Assign mutations back to the tree
-df = reconstruct_genotype_summary(tree) #Define df (data frame) for treeshape
-#Get matrices in order, and run the main assignment functions
-NV = as.matrix(filtered_muts$COMB_mats.tree.build$NV)
-NR = as.matrix(filtered_muts$COMB_mats.tree.build$NR)
-p.error = c(rep(0.01, ncol(filtered_muts$COMB_mats.tree.build$NR)))
-res = assign_to_tree(NV[,df$samples], NR[,df$samples], df, error_rate = p.error) #Get res (results!) object
-tree$edge.length <- res$df$df$edge_length #Assign edge lengths from the res object
-
-if(any(tree$edge.length[!tree$edge[,2]%in%1:length(tree$tip.label)]==0)) {
-  tree<-di2multi(tree)
-  df = reconstruct_genotype_summary(tree) #Define df (data frame) for treeshape
-  res = assign_to_tree(NV[,df$samples], NR[,df$samples], df, error_rate = p.error) #Get res (results!) object
-  #Assign edge lengths from the res object
-  tree$edge.length <- res$df$df$edge_length
-}
-
-details$node<-tree$edge[res$summary$edge_ml,2]
+tree<-read.tree(tree_file_path)
 
 #COMPARE WITH OTHER PHYLOGENY-BUILDING ALGORITHMS
 #1. iqtree. Use the binary input model with equal likelihood for all sites.
@@ -97,7 +79,7 @@ tree_iq$edge.length = rep(1, nrow(tree_iq$edge)) #Initially need to assign edge 
 
 #Assign mutations back to the tree
 df = reconstruct_genotype_summary(tree_iq) #Define df (data frame) for treeshape
-res = assign_to_tree(NV[,df$samples], NR[,df$samples], df, error_rate = p.error) #Get res (results!) object
+res = assign_to_tree(NV[,df$samples],NR[,df$samples],df,error_rate = c(rep(0.01, ncol(NR))))
 tree_iq$edge.length <- res$df$df$edge_length #Assign edge lengths from the res object
 tree_iq<-di2multi(tree_iq)
 
@@ -116,7 +98,7 @@ if(!file.exists(scite_output_tree_path)){
   writeLines(gt_rows,scite_input_file_path)
   
   #Write the SCITE command
-  scite_command=paste0(scite_path," -i ",scite_input_file_path," -n ",nrow(gt)," -m ",ncol(gt)," -r 1 -l 1000000 -fd 0.001 -ad 0.05 -transpose")
+  scite_command=paste0(scite_path," -i ",scite_input_file_path," -n ",nrow(gt)," -m ",ncol(gt)," -r 1 -l 1000000 -fd 0.001 -ad 0.001 -transpose")
   system(scite_command) #SCITE takes a long time (~12 hrs)
 }
 
@@ -126,14 +108,13 @@ tree_scite$tip.label<-sapply(tree_scite$tip.label,function(x) colnames(gt)[as.nu
 
 #Assign mutations back to the tree
 df = reconstruct_genotype_summary(tree_scite) #Define df (data frame) for treeshape
-res = assign_to_tree(NV[,df$samples], NR[,df$samples], df, error_rate = p.error) #Get res (results!) object
+res = assign_to_tree(NV[,df$samples],NR[,df$samples],df,error_rate = c(rep(0.01, ncol(NR))))
 tree_scite$edge.length <- res$df$df$edge_length #Assign edge lengths from the res object
 
 if(any(tree_scite$edge.length[!tree$edge[,2]%in%1:length(tree_scite$tip.label)]==0)) {
   tree_scite<-di2multi(tree_scite)
   df = reconstruct_genotype_summary(tree_scite) #Define df (data frame) for treeshape
-  res = assign_to_tree(NV[,df$samples], NR[,df$samples], df, error_rate = p.error) #Get res (results!) object
-  #Assign edge lengths from the res object
+  res = assign_to_tree(NV[,df$samples],NR[,df$samples],df,error_rate = c(rep(0.01, ncol(NR))))
   tree_scite$edge.length <- res$df$df$edge_length
 }
 

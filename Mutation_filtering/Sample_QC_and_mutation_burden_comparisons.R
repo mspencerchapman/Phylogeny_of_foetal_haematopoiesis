@@ -1,4 +1,5 @@
-my_working_directory="~/R Work/Fetal HSPCs/Phylogeny_of_foetal_haematopoiesis/"
+my_working_directory="~/R_work/Phylogeny_of_foetal_haematopoiesis/"
+treemut_dir="~/R_work/treemut/"
 setwd(my_working_directory)
 
 library(stringr)
@@ -12,7 +13,7 @@ library(forcats)
 
 R_function_files = list.files("R_functions",pattern=".R",full.names=TRUE)
 sapply(R_function_files,source)
-setwd("R_functions/treemut/"); source("treemut.R"); setwd(my_working_directory)
+setwd(treemut_dir); source("treemut.R"); setwd(my_working_directory)
 
 #Import the 18pcw smry seq object and add a "foetus" column
 smry_seq_18pcw<-read.csv("Data/18pcw/smry_seq_18pcw.csv")
@@ -128,7 +129,11 @@ df.tidy$samples<-gsub("_hum","",df.tidy$samples)
 
 #NOW READY TO CREATE THE PLOTS
 palette=c("#E30613","#1D71B8")
-my_theme = theme_classic(base_size=7)
+my_theme = theme_classic(base_family="Arial")+theme(text=element_text(size=7),
+                                                    axis.title = element_text(size=7),
+                                                    axis.text = element_text(size = 7),
+                                                    legend.text = element_text(size=7),
+                                                    strip.text = element_text(size=7))
 
 p1.1<-smry_seq %>%
   mutate(Foetus=fct_rev(Foetus)) %>%
@@ -202,9 +207,9 @@ p1.6<-smry_seq %>%
   my_theme
 
 #Arrange the plots in a grid - this is the final figure
-grid.arrange(p1.1,p1.2,p1.3,p1.4,p1.5,p1.6,ncol=3,nrow=2)
 my_grid<-arrangeGrob(p1.1,p1.2,p1.3,p1.4,p1.5,p1.6,ncol=3,nrow=2)
-ggsave(file="Figures/Combined/Sample_contamination_and_coverage.pdf",my_grid,device="pdf",width=10,height=8)
+plot(my_grid)
+ggsave(file="Figures/Combined/Sample_contamination_and_coverage.pdf",my_grid,device=cairo_pdf,width=10,height=8)
 
 
 #Plot SNV histogram
@@ -239,7 +244,7 @@ p2.2 <- df.tidy %>%
 mean_SNV_burden <- df.tidy %>%
   filter(mutation_burden=="SNV_muts_c") %>%
   group_by(foetus) %>%
-  summarise(mean=mean(number_of_mutations))
+  summarise(mean=mean(number_of_mutations),n=n(),sd=sd(number_of_mutations))
 
 mean_shared<- df.tidy %>%
   filter(mutation_burden=="PROP_shared") %>%
@@ -261,4 +266,4 @@ p2.3<- df2 %>%
 #Arrange the plots and save
 my_grid_2<-arrangeGrob(p2.1,p2.2,p2.3,ncol=3,widths=c(2,1.5,1.5))
 plot(my_grid_2)
-ggsave(file="Figures/Combined/Mutation_burden_comparisons.pdf",my_grid_2,device="pdf",width = 8,height=2.5)
+ggsave(file="Figures/Combined/Mutation_burden_comparisons.pdf",my_grid_2,device=cairo_pdf,width = 8,height=2)

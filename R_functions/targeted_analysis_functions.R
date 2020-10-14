@@ -647,14 +647,16 @@ generate_targ_seq_plots=function(samples,
       details_targ_full=cbind(details_targ,log_cell_frac_present_scaled)
     }
   }
+  colnames(details_targ_full)<-gsub("_comb","",colnames(details_targ_full))
   lims=par("usr")
   sapply(samples, function(sample) {
+    sample_stripped=gsub("_comb","",sample)
     tree=plot_tree(tree, cex.label = 0,lwd=0.5,plot_axis = TRUE,default_edge_color="lightgrey")
     lims=par("usr")
     if(grepl("PD",sample)) {
       text(0,lims[4]-1,paste0(lcm_smry$Tissue[lcm_smry$Sample_ID==sample]," (",sample,"): Mean depth is ",round(mean(NR[,gsub("_comb","",sample)]),digits = 2)),cex=1,pos=4)
     } else {
-      text(0,lims[4]-0.5,paste0(sample,": Mean depth is ",round(mean(NR[,gsub("_comb","",sample)]),digits = 2)),cex=1,pos=4)
+      text(0,lims[4]-0.5,paste0(sample,": Mean depth is ",round(mean(NR[,sample_stripped]),digits = 2)),cex=1,pos=4)
     }
     if(grepl("PD",sample)) {
       text(0,lims[4]-3,paste0("Library concentration was ",round(lcm_smry$Conc[lcm_smry$Sample_ID==sample],digits=0)),pos=4)
@@ -669,7 +671,7 @@ generate_targ_seq_plots=function(samples,
                                  details,
                                  matrices,
                                  node,
-                                 var_field = sample,
+                                 var_field = sample_stripped,
                                  pval_based=FALSE,
                                  lwd = 5,
                                  colours=colour.scale,
@@ -683,10 +685,10 @@ generate_targ_seq_plots=function(samples,
                               details=details_targ_full,
                               matrices=matrices,
                               annot_function=function(node,sample,tree,details,matrices,cex=0.6) {
-                                node_cell_frac=get_node_cell_frac(node,gsub("_comb","",sample),tree,details,matrices)
+                                node_cell_frac=get_node_cell_frac(node,sample_stripped,tree,details,matrices)
                                 node_cell_frac<-min(node_cell_frac,1)
                                 info=get_edge_info(tree,details,node)
-                                if(!is.na(node_cell_frac) & any(post.prob.mat[info$idx.in.details,sample]>prob_threshold_to_include)) {
+                                if(!is.na(node_cell_frac) & any(post.prob.mat[info$idx.in.details,sample_stripped]>prob_threshold_to_include)) {
                                   text(info$x,info$yb,round(node_cell_frac,digits=3),cex = cex,col="black",font=2)
                                 }
                               })
@@ -695,11 +697,18 @@ generate_targ_seq_plots=function(samples,
       #Detect which nodes to plot donuts for - do it for branches with a mean clean.post.prob of >0.5
       nodes_to_check=unique(tree$edge[,2])[!unique(tree$edge[,2])%in%1:length(tree$tip.label)]
       nodes_to_include=sapply(nodes_to_check,function(node) {
-        if(mean(post.prob.mat[details_targ$node==node,sample])>0.5){return(node)}else{return(NA)}
+        if(sum(details_targ$node==node)==0) {
+          return(NA)
+        } else if(mean(post.prob.mat[details_targ$node==node,sample,drop=F])>0.5){
+          return(node)
+        }else{
+            return(NA)
+          }
       })
       nodes_to_include<-nodes_to_include[!is.na(nodes_to_include)]
       
       if(donut_info=="cell_frac") {
+        print("Starting to plot the cell fraction pie charts")
         #Iterate through these nodes and plot the donuts
         for(node in nodes_to_include) {
           print(node)
@@ -828,27 +837,38 @@ clean_up_post=function(post.prob,details,tree) { #post.prob is the named vector 
 }
 
 #This is the alternative clean up function that uses a maximum likelihood model to decide if "outlier" mutations that are positive are likely to be genuine or error
-clean_up_post_2=function(sample,all.post.prob,tree,details,post.prob_cutoffs=c(0.05,0.15,0.3,0.5)) {
+clean_up_post_2=function(sample,
+                         all.post.prob,
+                         tree,
+                         details,
+                         post.prob_cutoffs=c(0.05,0.15,0.3,0.5),
+                         alpha_error, #Must be named with the mut_refs
+                         beta_error, #Must be named with the mut_refs
+                         absolute_mll_cutoff=(-3), #Absolute log-likelihood cutoff for mutation to be retained
+                         ml_vaf_cutoff=0.01) {
   print(sample)
   post.prob.sample=all.post.prob[,sample]
+  sample_stripped=gsub("_comb","",sample)
+  ROOT=1+length(tree$tip.label)
   for(k in 1:length(post.prob_cutoffs)) {
     print(k)
     post.prob_cutoff=post.prob_cutoffs[k]
-    #Find all muts with a post.prob value > cut-off
+    
+    #All muts with a post.prob value > cut-off
     positive_muts=names(post.prob.sample[post.prob.sample>post.prob_cutoff])
     
     #See which ones have a proximal branch with any negative/ lower post.prob values - the "outliers"
     select_outliers=sapply(positive_muts, function(mut){
       node=details$node[details$mut_ref==mut]
       ancestral_node=tree$edge[tree$edge[,2]==node,1]
-      if(ancestral_node==278) {
+      if(ancestral_node==ROOT) {
         return(FALSE)
       } else {
         return(any(post.prob.sample[details$mut_ref[details$node==ancestral_node]]<post.prob_cutoff))
       }
     })
     outlier_muts=positive_muts[select_outliers]
-    if(length(outlier_muts)==0){break}
+    if(length(outlier_muts)==0){next}
     
     #If there are more than one mutation from the outlier branch, select the one with the highest post.prob
     outlier_muts=unlist(lapply(unique(details$node[details$mut_ref%in%outlier_muts]),function(node){
@@ -867,14 +887,14 @@ clean_up_post_2=function(sample,all.post.prob,tree,details,post.prob_cutoffs=c(0
       outlier_node=details$node[details$mut_ref==outlier_mut]
       ancestral_nodes=get_ancestral_nodes(outlier_node,tree$edge)[-1]
       negative_ancestors=ancestral_nodes[sapply(ancestral_nodes,function(node) any(post.prob.sample[details$node==node]<post.prob_cutoff))]
-      NV_vec=NV[details$node%in%negative_ancestors & post.prob.sample<post.prob_cutoff,sample]
-      NR_vec=NR[details$node%in%negative_ancestors & post.prob.sample<post.prob_cutoff,sample]
+      NV_vec=NV[details$node%in%negative_ancestors & post.prob.sample<post.prob_cutoff,sample_stripped]
+      NR_vec=NR[details$node%in%negative_ancestors & post.prob.sample<post.prob_cutoff,sample_stripped]
       
       prob_grid=seq(0.001,0.2,by=0.001)
       out=sapply(prob_grid,function(prob) {
         LL_neg=sum(dbinom(NV_vec,NR_vec,prob = prob,log = T))
-        LL_outlier=dbinom(NV[outlier_mut,sample],NR[outlier_mut,sample],prob=prob,log=T)
-        #LL_outlier=dbetabinom(NV[outlier_mut,sample],NR[outlier_mut,sample],prob=prob,rho=0.05,log=T)
+        LL_outlier=dbinom(NV[outlier_mut,sample_stripped],NR[outlier_mut,sample_stripped],prob=prob,log=T)
+        #LL_outlier=dbetabinom(NV[outlier_mut,sample_stripped],NR[outlier_mut,sample_stripped],prob=prob,rho=0.05,log=T)
         total_LL=LL_neg+LL_outlier
         return(total_LL)
       })
@@ -883,12 +903,13 @@ clean_up_post_2=function(sample,all.post.prob,tree,details,post.prob_cutoffs=c(0
       beta_outlier=beta_error[outlier_mut]
       mu_outlier=alpha_outlier/(alpha_outlier+beta_outlier)
       rho_outlier=(1+alpha_outlier+beta_outlier)^(-1)
-      LL_neg_outlier=dbetabinom(NV[outlier_mut,sample],NR[outlier_mut,sample],prob = mu_outlier,rho=rho_outlier,log = T)
+      LL_neg_outlier=dbetabinom(NV[outlier_mut,sample_stripped],NR[outlier_mut,sample_stripped],prob = mu_outlier,rho=rho_outlier,log = T)
       return(c(ml_vaf=mlprob,mll=max(out),errorll=LL_neg_outlier))
     })
     
     #if (1) the MLL (maximum log likelihood) vaf is >0.01 (i.e. not contamination)
     #and (2) MLL is > 1 more than the error LL
+    #(3) the absolute maximum-log-likelihood must be >-3
     #-> increase the post.prob of the proximal mutations to that of the outlier (these mutations were most likely to have been missed be chance)
     #Otherwise, set the outlier post.prob to 0 (i.e. outlier more likely to be error/ contamination)
     
@@ -897,7 +918,10 @@ clean_up_post_2=function(sample,all.post.prob,tree,details,post.prob_cutoffs=c(0
       as.data.frame()%>%
       tibble::rownames_to_column(var="mut_ref")%>%
       mutate(ll_diff=mll-errorll)%>%
-      mutate(genuine=ifelse(ll_diff>1&ml_vaf>0.01,"yes","no"))
+      mutate(genuine=ifelse(ll_diff>1& #The probability that mutation comes from genuine mutation distribution must be ≥10x more than the probability of coming from error distribution
+                              ml_vaf>ml_vaf_cutoff& #The maximum-likelihood cell fraction must be >0.01 (otherwise may be low level contamination)
+                              mll<absolute_mll_cutoff, #The absolute mll must be >10^(-3).
+                            "yes","no"))
     
     for(i in 1:nrow(outlier_df)) {
       if(outlier_df$genuine[i]=="no") {

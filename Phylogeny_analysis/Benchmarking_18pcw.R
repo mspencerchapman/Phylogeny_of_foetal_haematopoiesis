@@ -37,7 +37,6 @@ get_RF_dist=function(tree1,tree2){
 
 #Set file paths
 my_working_directory="/lustre/scratch119/casm/team154pc/ms56/fetal_HSC/Phylogeny_of_foetal_haematopoiesis"
-#my_working_directory="~/Mounts/Lustre/fetal_HSC/Phylogeny_of_foetal_haematopoiesis/"
 treemut_dir="/lustre/scratch119/casm/team154pc/ms56/fetal_HSC/treemut"
 filtered_muts_file = "Data/18pcw/Filtered_mut_set_annotated_18pcw"
 tree_file_path="Data/18pcw/Tree_18pcw.tree"
@@ -60,27 +59,9 @@ setwd(treemut_dir); source("treemut.R"); setwd(my_working_directory)
 #Load the filtered_muts_file & create the mutation matrix in the format required for scite
 load(filtered_muts_file)
 gt<-filtered_muts$Genotype_shared_bin
+NV<-as.matrix(filtered_muts$COMB_mats.tree.build$NV);NR<-as.matrix(filtered_muts$COMB_mats.tree.build$NR)
 details<-filtered_muts$COMB_mats.tree.build$mat
-tree<-di2multi(read.tree(tree_file_path))
-
-#Assign mutations back to the tree
-df = reconstruct_genotype_summary(tree) #Define df (data frame) for treeshape
-#Get matrices in order, and run the main assignment functions
-NV = as.matrix(filtered_muts$COMB_mats.tree.build$NV)
-NR = as.matrix(filtered_muts$COMB_mats.tree.build$NR)
-p.error = c(rep(0.01, ncol(filtered_muts$COMB_mats.tree.build$NR)))
-res = assign_to_tree(NV[,df$samples], NR[,df$samples], df, error_rate = p.error) #Get res (results!) object
-tree$edge.length <- res$df$df$edge_length #Assign edge lengths from the res object
-
-if(any(tree$edge.length[!tree$edge[,2]%in%1:length(tree$tip.label)]==0)) {
-  tree<-di2multi(tree)
-  df = reconstruct_genotype_summary(tree) #Define df (data frame) for treeshape
-  res = assign_to_tree(NV[,df$samples], NR[,df$samples], df, error_rate = p.error) #Get res (results!) object
-  #Assign edge lengths from the res object
-  tree$edge.length <- res$df$df$edge_length
-}
-
-details$node<-tree$edge[res$summary$edge_ml,2]
+tree<-read.tree(tree_file_path)
 
 #COMPARE WITH OTHER PHYLOGENY-BUILDING ALGORITHMS
 #1. iqtree. Use the binary input model with equal likelihood for all sites.
@@ -99,7 +80,7 @@ tree_iq$edge.length = rep(1, nrow(tree_iq$edge)) #Initially need to assign edge 
 
 #Assign mutations back to the tree
 df = reconstruct_genotype_summary(tree_iq) #Define df (data frame) for treeshape
-res = assign_to_tree(NV[,df$samples], NR[,df$samples], df, error_rate = p.error) #Get res (results!) object
+res = assign_to_tree(NV[,df$samples],NR[,df$samples],df,error_rate = c(rep(0.01, ncol(NR))))
 tree_iq$edge.length <- res$df$df$edge_length #Assign edge lengths from the res object
 tree_iq<-di2multi(tree_iq)
 
@@ -189,6 +170,6 @@ p2<-data.frame(type=c("data",rep("random_shuffles",nrand)),disagreement_score=c(
   my_theme+
   theme(legend.position = "none")+
   labs(title="Internal consistency of 18pcw genotypes")
-ggsave("~/Documents/Foetal_paper_revisions/Internal_consistency_18pcw.pdf",p2,width=3,height=3)
+ggsave("~/Documents/Foetal_paper_revisions/Internal_consistency_18pcw.pdf",p2,width=3,height=3,device=cairo_pdf)
 
 

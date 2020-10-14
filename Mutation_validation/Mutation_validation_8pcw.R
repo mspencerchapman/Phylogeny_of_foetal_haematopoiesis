@@ -9,8 +9,8 @@ library(plotrix)
 library(phangorn)
 library(RColorBrewer)
 
-my_working_directory="~/R Work/Fetal HSPCs/Phylogeny_of_foetal_haematopoiesis/"
-treemut_dir="~/R Work/R_scripts/treemut/"
+my_working_directory="~/R_work/Phylogeny_of_foetal_haematopoiesis/"
+treemut_dir="~/R_work/treemut/"
 setwd(my_working_directory)
 
 #Define the file paths for the data files
@@ -63,14 +63,18 @@ binomial_mix_plot=function(mut_counts_df,mut_ref_set,depth_cutoff,nrange=1:4,tit
   NV=mut_counts_df$NV[mut_counts_df$mut_ref%in%mut_ref_set & mut_counts_df$NR>=depth_cutoff]
   NR=mut_counts_df$NR[mut_counts_df$mut_ref%in%mut_ref_set & mut_counts_df$NR>=depth_cutoff]
   cols=c("blue","red","green","orange","magenta")
-  hist(NV/NR,breaks=seq(0,1,0.05),xlim=c(0,1),col='gray',freq=F,xlab="VAF",main=title,cex.main=0.7,cex.lab=0.7,cex.axis=0.7,...)
-  lines(density(NV/NR),lwd=2,lty='dashed')
+  hist(NV/NR,breaks=seq(0,1,0.05),xlim=c(0,1),col='gray',freq=F,xlab="VAF",main=title,cex.main=1,cex.lab=1,cex.axis=1,family="Arial",...)
   res = binom_mix(NV,NR,nrange=nrange)
+  cols_ordered=vector()
+  cols_ordered[which.min(abs(res$p-0.35))]<-"orange"
+  cols_ordered[which.min(abs(res$p-0.25))]<-"red"
+  cols_ordered[which.min(abs(res$p-0.5))]<-"blue"
+
   for (i in 1:res$n){
     meancov = round(mean(NR))
     lines(x=(0:meancov)/meancov,
           y=meancov*res$prop[i]*dbinom(0:meancov,meancov,prob=res$p[i]),
-          type="l",col=cols[i],lwd=2)
+          type="l",col=cols_ordered[i],lwd=1.5)
   }
   res$mut_ref=as.character(mut_counts_df$mut_ref[mut_counts_df$mut_ref%in%mut_ref_set & mut_counts_df$NR>=depth_cutoff])
   df=data.frame(binom.peak = res$p[order(res$p)], sample_fraction=res$prop[order(res$p)])
@@ -79,13 +83,13 @@ binomial_mix_plot=function(mut_counts_df,mut_ref_set,depth_cutoff,nrange=1:4,tit
 }
 
 #Apply to the autosomal mutations, using either 8x or 40x cutoffs, and reviewing private or shared
-pdf("Figures/8pcw/Mutation_validation_binomial_mix_model_8pcw.pdf",width=7,height=7)
-par(mfrow=c(2,2))
-binomial_mix_plot(mut_counts_df=mut_counts_df,mut_ref_set = auto_private_SNVs,depth_cutoff = 8,title = "8pcw: Private autosomal SNVs (depth>=8)") #
-binomial_mix_plot(mut_counts_df=mut_counts_df,mut_ref_set = auto_private_SNVs,depth_cutoff = 40,title = "8pcw: Private autosomal SNVs (depth>=40)")
+cairo_pdf("Figures/8pcw/Mutation_validation_binomial_mix_model_8pcw.pdf",width=8,height=3)
+par(mfrow=c(1,2))
 binomial_mix_plot(mut_counts_df=mut_counts_df,mut_ref_set = auto_shared_SNVs,depth_cutoff = 8,title = "8pcw: Shared autosomal SNVs (depth>=8)",ylim=c(0,7))
-binomial_mix_plot(mut_counts_df=mut_counts_df,mut_ref_set = auto_shared_SNVs,depth_cutoff = 40, title = "8pcw: Shared autosomal SNVs (depth>=40)",ylim=c(0,11))
+binomial_mix_plot(mut_counts_df=mut_counts_df,mut_ref_set = auto_private_SNVs,depth_cutoff = 8,title = "8pcw: Private autosomal SNVs (depth>=8)") #
 dev.off()
+
+binomial_mix_plot(mut_counts_df=mut_counts_df,mut_ref_set = auto_private_SNVs,depth_cutoff = 40,title = "8pcw: Private autosomal SNVs (depth>=40)")
 
 #For the autosomal private mutations, pull out the subclonal and clonal clusters of mutations for mutational signature analysis
 res=binomial_mix_plot(mut_counts_df=mut_counts_df,mut_ref_set = auto_private_SNVs,depth_cutoff = 8,return_res = TRUE)
@@ -94,11 +98,29 @@ subclonal_muts=res$mut_ref[res$Which_cluster!=clonal_clust]
 clonal_muts=res$mut_ref[res$Which_cluster==clonal_clust]
 
 #Create and save vcf files of these mutations
-subclonal_vcf_file = create_vcf_files(filtered_muts$COMB_mats.tree.build$mat, select_vector = filtered_muts$COMB_mats.tree.build$mat$mut_ref %in% subclonal_muts)
-clonal_vcf_file = create_vcf_files(filtered_muts$COMB_mats.tree.build$mat, select_vector = filtered_muts$COMB_mats.tree.build$mat$mut_ref %in% clonal_muts)
+write.vcf=function(details,vcf_path,select_vector=NULL,vcf_header_path="~/Documents/vcfHeader.txt") {
+  vcf=create_vcf_files(mat=details,select_vector=select_vector)
+  write.table(vcf,sep = "\t", quote = FALSE,file=paste0(vcf_path,".temp"),row.names = F)
+  system(paste0("cat ",vcf_header_path," ",vcf_path,".temp > ",vcf_path))
+  system(paste0("rm ",vcf_path,".temp"))
+}
 
-write.table(subclonal_vcf_file, sep = "\t", quote = FALSE, file = "Data/8pcw/subclonal_private_muts_8pcw.vcf", row.names = FALSE)
-write.table(clonal_vcf_file, sep = "\t", quote = FALSE, file = "Data/8pcw/clonal_private_muts_8pcw.vcf", row.names = FALSE)
+write.vcf(details = filtered_muts$COMB_mats.tree.build$mat,
+          vcf_path = "Data/8pcw/subclonal_private_muts_8pcw.vcf",
+          select_vector = filtered_muts$COMB_mats.tree.build$mat$mut_ref %in% subclonal_muts,
+          vcf_header_path = "Data/vcfHeader.txt")
+write.vcf(details = filtered_muts$COMB_mats.tree.build$mat,
+          vcf_path = "Data/8pcw/clonal_private_muts_8pcw.vcf",
+          select_vector = filtered_muts$COMB_mats.tree.build$mat$mut_ref %in% clonal_muts,
+          vcf_header_path = "Data/vcfHeader.txt")
+write.vcf(details = filtered_muts$COMB_mats.tree.build$mat,
+          vcf_path = "Data/8pcw/Mutations_all_8pcw.vcf",
+          select_vector = NULL,
+          vcf_header_path = "Data/vcfHeader.txt")
+write.vcf(details = filtered_muts$COMB_mats.tree.build$mat,
+          vcf_path = "Data/8pcw/Mutations_shared_8pcw.vcf",
+          select_vector = !filtered_muts$COMB_mats.tree.build$mat$node %in% 1:length(tree$tip.label),
+          vcf_header_path = "Data/vcfHeader.txt")
 
 #It is surprising that some shared mutations may be called as "subclonal",as the fact that it has been called
 #in more than one colony (and that the sharing fits the phylogeny) makes it highly unlikely to be in vitro acquired
@@ -112,15 +134,15 @@ pdf("Figures/8pcw/Shared_mutations_called_as_subclonal_8pcw.pdf",width=15,height
 par(mfrow=c(1,1))
 for(i in 1:length(subclonal_muts)) {
   tree_targ=plot_tree(tree=tree_targ,cex.label=0.2)
-  add_annotation(tree,
+  add_annotation(tree_targ,
                  details=details_targ,
                  matrices=list(NV=SCC_mats$NV, NR=SCC_mats$NR),
                  annot_function = plot_mut_vaf_by_branch,
                  mut=subclonal_muts[i],
                  cex=0.4)
-  add_annotation(tree,
+  add_annotation(tree_targ,
                  details=details,
-                 matrices=list(NV=NV, NR=NR),
+                 matrices=list(NV=SCC_mats$NV, NR=SCC_mats$NR),
                  annot_function = highlight_nodes, #Highlights the allocated node for the mutation with dashed red
                  nodes=details$node[details$mut_ref==subclonal_muts[i]],
                  lty=2)
@@ -146,7 +168,7 @@ samples=colonies_to_validate
 sapply(samples, function(SAMPLE) {
   tree_targ=plot_tree(tree_targ, cex.label = 0)
   text(50,1.5,SAMPLE)
-  text(50,0,paste0("Mean depth is ",round(mean(NR[,SAMPLE]),digits = 2)))
+  text(50,0,paste0("Mean depth is ",round(mean(SCC_mats$NR[,SAMPLE]),digits = 2)))
   add_annotation(tree=tree_targ,
                  details=details_targ_full,
                  list(mtr=SCC_mats$NV,dep=SCC_mats$NR),
