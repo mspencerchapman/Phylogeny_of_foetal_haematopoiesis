@@ -198,7 +198,9 @@ tree.gen.ultra.squash=squash_tree(tree.gen.ultra,cut_off = 10.9)
 #(4) note that the post.prob & clean.post.prob matrices are expected to include the "_comb" versions for tissues & germ_layers
 #(6) A colour.scale object containing the colour scale for the trees (and the scale bar)
 
-#Create vectors of the two "comb" data types
+#Create vectors of the "combined" data types
+tissues=names(table(lcm_smry$Tissue))
+germ_layers=names(table(lcm_smry$Germ_layer))
 tissues_comb=paste0(tissues,"_comb")
 germ_layers_comb=paste0(germ_layers,"_comb")
 
@@ -414,8 +416,8 @@ ggsave(comb_plot,filename = "Figures/18pcw/Ancestral_mutations_and_lineages.pdf"
 
 #Try to pick apart branches that represent multiple generations
 #All combined LCM counts give the best power to pick these out - therefore add this column
-NV<-cbind(NV,matrix(apply(NV[,colnames(NV)%in%lcm_smry$Sample_ID],1,sum),ncol=1,dimnames=list(NULL,"ALL_LCM")))
-NR<-cbind(NR,matrix(apply(NR[,colnames(NR)%in%lcm_smry$Sample_ID],1,sum),ncol=1,dimnames=list(NULL,"ALL_LCM")))
+NV_all<-cbind(NV,matrix(apply(NV[,colnames(NV)%in%lcm_smry$Sample_ID],1,sum),ncol=1,dimnames=list(NULL,"ALL_LCM")))
+NR_all<-cbind(NR,matrix(apply(NR[,colnames(NR)%in%lcm_smry$Sample_ID],1,sum),ncol=1,dimnames=list(NULL,"ALL_LCM")))
 
 #Work out branches/ mutations for each generation
 #Gens 1 & 2 are straight-foward
@@ -426,37 +428,37 @@ gen_branches_2=tree_targ$edge[tree_targ$edge[,1]%in%236,2] #237 and 305
 #STRATEGY IS: find all branches with any mutations contributing & then exclude those that are not that generation
 gen_branches_3=tree_targ$edge[tree_targ$edge[,1]%in%gen_branches_2,2]
 #exclude the late muts from 238
-late_238=find_early_muts_from_branch("ALL_LCM",node=238,tree=tree_targ,details=details_targ,matrices = list(NV=NV,NR=NR),return_late_muts = T)
+late_238=find_early_muts_from_branch("ALL_LCM",node=238,tree=tree_targ,details=details_targ,matrices = list(NV=NV_all,NR=NR_all),return_late_muts = T)
 #exclude the late muts from the node 305 daughters
 daughters<-Descendants(tree_targ,305,type = "children")
-single_dist=sapply(daughters,function(x) check_branch_distribution("ALL_LCM",node=x,tree=tree_targ,details=details_targ,matrices=list(NV=NV,NR=NR)))
+single_dist=sapply(daughters,function(x) check_branch_distribution("ALL_LCM",node=x,tree=tree_targ,details=details_targ,matrices=list(NV=NV_all,NR=NR_all)))
 names(single_dist)<-daughters
-mixed_dist_branches=single_dist[single_dist<0.05 & !is.na(single_dist)] #3 branches (367,368 & 383) have mixed distributions
-#binom_mix function fails for branch 383 - therefore only apply to 367 & 368
-late_367_368=Reduce(c,lapply(c(367,368),function(x) {find_early_muts_from_branch("ALL_LCM",node=x,tree=tree_targ,details=details_targ,matrices = list(NV=NV,NR=NR),return_late_muts = T)}))
-#Manual execution for branch 383
-node_df=check_branch_distribution("ALL_LCM",383,tree_targ,details_targ,list(NV=NV,NR=NR),return_counts = TRUE)
+mixed_dist_branches=single_dist[single_dist<0.05 & !is.na(single_dist)] #3 branches 347,362,363 (previously 367,368 & 383) have mixed distributions
+#binom_mix function fails for branch 363 - therefore only apply to 347 & 362
+late_347_362=Reduce(c,lapply(c(347,362),function(x) {find_early_muts_from_branch("ALL_LCM",node=x,tree=tree_targ,details=details_targ,matrices = list(NV=NV_all,NR=NR_all),return_late_muts = T)}))
+#Manual execution for branch 363
+node_df=check_branch_distribution("ALL_LCM",363,tree_targ,details_targ,list(NV=NV_all,NR=NR_all),return_counts = TRUE)
 node_df$vaf=node_df$NV/node_df$NR #highest vaf is idx 1010, therefore exclude 608 & 2287
-late_383=c(608,2287)
-not_gen_3=c(late_238,late_367_368,late_383)
+late_363=c(608,2287)
+not_gen_3=c(late_238,late_347_362,late_363)
 
 #Gen 4 includes: late muts of 238, early muts from node 284 daughters (285/293/91/298/301/106), node 305 daughters (306/341/361/367/368/383) - later muts only if split
 #STRATEGY IS: exclude early muts of 238,late muts from 284 daughters, early muts from 305 daughters (NB, some muts from 305 daughters will be included in gen 3 & gen 4)
 gen_branches_4=c(238,Descendants(tree_targ,284,"children"),Descendants(tree_targ,305,"children"))
-early_238=find_early_muts_from_branch("ALL_LCM",node=238,tree=tree_targ,details=details_targ,matrices = list(NV=NV,NR=NR),return_late_muts = F)
+early_238=find_early_muts_from_branch("ALL_LCM",node=238,tree=tree_targ,details=details_targ,matrices = list(NV=NV_all,NR=NR_all),return_late_muts = F)
 #exclude the late muts from the node 284 daughters
 daughters<-Descendants(tree_targ,284,type = "children")
-single_dist=sapply(daughters,function(x) check_branch_distribution("ALL_LCM",node=x,tree=tree_targ,details=details_targ,matrices=list(NV=NV,NR=NR)))
+single_dist=sapply(daughters,function(x) check_branch_distribution("ALL_LCM",node=x,tree=tree_targ,details=details_targ,matrices=list(NV=NV_all,NR=NR_all)))
 names(single_dist)<-daughters
-mixed_dist_branches=single_dist[single_dist<0.05 & !is.na(single_dist)] #3 branches (367,368 & 383) have mixed distributions
-late_284_daughters=Reduce(c,lapply(names(mixed_dist_branches),function(x) {find_early_muts_from_branch("ALL_LCM",node=x,tree=tree_targ,details=details_targ,matrices = list(NV=NV,NR=NR),return_late_muts = T)}))
+mixed_dist_branches=single_dist[single_dist<0.05 & !is.na(single_dist)] #3 branches (84,293,106) have mixed distributions
+late_284_daughters=Reduce(c,lapply(names(mixed_dist_branches),function(x) {find_early_muts_from_branch("ALL_LCM",node=x,tree=tree_targ,details=details_targ,matrices = list(NV=NV_all,NR=NR_all),return_late_muts = T)}))
 #exclude early muts from mixed 305 daughters (this is 367,368 and 383)
-node_df=check_branch_distribution("ALL_LCM",367,tree_targ,details_targ,list(NV=NV,NR=NR),return_counts = TRUE)
-not_gen_4_367=c(274,367,2474)
-early_368=find_early_muts_from_branch("ALL_LCM",368,tree_targ,details_targ,list(NV=NV,NR=NR),return_late_muts = F)
-node_df=check_branch_distribution("ALL_LCM",383,tree_targ,details_targ,list(NV=NV,NR=NR),return_counts = TRUE)
-early_383=1010
-not_gen_4=c(early_238,late_284_daughters, not_gen_4_367,early_368,early_383)
+node_df=check_branch_distribution("ALL_LCM",362,tree_targ,details_targ,list(NV=NV_all,NR=NR_all),return_counts = TRUE)
+not_gen_4_362=c(274,367,2474)
+early_368=find_early_muts_from_branch("ALL_LCM",368,tree_targ,details_targ,list(NV=NV_all,NR=NR_all),return_late_muts = F)
+node_df=check_branch_distribution("ALL_LCM",363,tree_targ,details_targ,list(NV=NV_all,NR=NR_all),return_counts = TRUE)
+early_363=1010
+not_gen_4=c(early_238,late_284_daughters, not_gen_4_362,early_368,early_363)
 
 #Create summary df to get total generation cell 
 summary_df=data.frame(tissue=NA,generation=NA,median_cell_frac=NA,CI_95_lower=NA,CI_95_upper=NA)

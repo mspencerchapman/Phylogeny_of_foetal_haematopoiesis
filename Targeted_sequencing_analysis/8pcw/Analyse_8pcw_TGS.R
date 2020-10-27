@@ -38,6 +38,13 @@ combine_post_prob=function(post.prob,lcm_summary_table,aggregate_feature,exclude
   return(post.prob_comb)
 }
 
+my_theme=theme_classic(base_size=7,base_family="Arial")+theme(text=element_text(size=7,family="Arial"),
+                                                              axis.text=element_text(size=7,family="Arial"),
+                                                              strip.text = element_text(size=7,family="Arial"),
+                                                              legend.text = element_text(size=7,family="Arial"))
+
+
+
 my_working_directory="~/R_work/Phylogeny_of_foetal_haematopoiesis/"
 treemut_dir="~/R_work/treemut" #Path for the cloned "treemut" directory
 setwd(my_working_directory)

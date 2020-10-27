@@ -127,7 +127,7 @@ if(opt$m) {
                  get_max_depth_in_pos)
   
   #Run fun.list functions in parallel
-  fun.out = mclapply(fun.list, function(f) {f(COMB_mats)})
+  fun.out = mclapply(fun.list, function(f) {f(COMB_mats)},mc.preschedule = F)
   
   #Use these parameters to recognise and remove mixed colony samples
   basic_params <- as.data.frame(Reduce(cbind,fun.out))
@@ -178,7 +178,7 @@ if(opt$m) {
                get_max_depth_in_pos)
   
   #Run functions in parallel
-  fun.out = mclapply(fun.list, function(f) {f(COMB_mats)})
+  fun.out = mclapply(fun.list, function(f) {f(COMB_mats)},mc.preschedule = F)
   
   #Assign output of the first function to the main set of matrices - this is the "PVal matrix" for the final filter
   #Then delete it from the function output
